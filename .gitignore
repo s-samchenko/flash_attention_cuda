@@ -1,0 +1,13 @@
+build/
+cmake-build-*/
+.idea/
+*.o
+*.a
+*.so
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+context/
