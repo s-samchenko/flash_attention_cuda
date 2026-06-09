@@ -38,11 +38,12 @@ set(CMAKE_CUDA_FLAGS_DEBUG   "${CMAKE_CUDA_FLAGS_DEBUG}   -G -g")
 
 set(KERNEL_SOURCES
         src/kernels/attention_naive.cu
+        src/kernels/attention_fused_softmax.cu
 )
 
 add_executable(flash_attn
     src/main.cu
-    src/reference.cu
+    #src/reference.cu
     include/benchmark.cuh
     ${KERNEL_SOURCES}
 )

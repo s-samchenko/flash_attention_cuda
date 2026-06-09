@@ -16,11 +16,55 @@ static void fill_rand(float* d_ptr, long n)
     cudaMemcpy(d_ptr, h.data(), n * sizeof(float), cudaMemcpyHostToDevice);
 }
 
-// Bytes touched by the naive 3-kernel attention (N×N matrix materialised)
+// Q+K read, S write, S read+write (softmax in-place), S read, V read, O write
 static long naive_bytes(int batch, int n_heads, long N, long D)
 {
     long BH = batch * n_heads;
-    return BH * (4L * N * D + N * N) * sizeof(float);
+    return BH * (4L * N * D + 4L * N * N) * sizeof(float);
+}
+
+// Q+K read, S write, S read, V read, O write, P never touches HBM
+static long fused_softmax_bytes(int batch, int n_heads, long N, long D)
+{
+    long BH = batch * n_heads;
+    return BH * (4L * N * D + 2L * N * N) * sizeof(float);
+}
+
+// ── metrics ──────────────────────────────────────────────────────────────────
+
+// RTX 3090 peaks
+constexpr float PEAK_BANDWIDTH_GB_S = 936.0f;
+constexpr float PEAK_TFLOPS_FP32    = 35.5f;
+
+struct KernelMetrics {
+    float ms;
+    float bandwidth_gb_s;
+    float tflops;
+    float arithmetic_intensity;
+    float pct_peak_bandwidth;
+    float pct_peak_tflops;
+};
+
+static KernelMetrics compute_metrics(float ms, long flops, long bytes)
+{
+    KernelMetrics m;
+    m.ms                   = ms;
+    m.bandwidth_gb_s       = (bytes / 1e9f) / (ms / 1e3f);
+    m.tflops               = (flops / 1e12f) / (ms / 1e3f);
+    m.arithmetic_intensity = (float)flops / (float)bytes;
+    m.pct_peak_bandwidth   = (m.bandwidth_gb_s / PEAK_BANDWIDTH_GB_S) * 100.0f;
+    m.pct_peak_tflops      = (m.tflops / PEAK_TFLOPS_FP32) * 100.0f;
+    return m;
+}
+
+static void print_metrics(const char* label, int sl, int hd, KernelMetrics m)
+{
+    printf("%-16s  seq=%4d  hd=%3d  %7.3f ms  %6.1f GB/s (%4.1f%% peak)  %5.3f TFLOPS (%4.1f%% peak)  AI=%5.1f FLOP/B\n",
+           label, sl, hd,
+           m.ms,
+           m.bandwidth_gb_s, m.pct_peak_bandwidth,
+           m.tflops, m.pct_peak_tflops,
+           m.arithmetic_intensity);
 }
 
 // ── benchmark ───────────────────────────────────────────────────────────
@@ -64,8 +108,7 @@ static void bench_kernel(const char* name, AttnFn fn,
             long flops = 4L * batch * n_heads * N * N * D;
             long bytes = bytes_fn(batch, n_heads, N, D);
 
-            printf("ms: %.4f flops: %ld bytes: %ld seq_len: %d head_dim: %d batch: %d n_heads: %d\n",
-                   ms, flops, bytes, sl, hd, batch, n_heads);
+            print_metrics(name, sl, hd, compute_metrics(ms, flops, bytes));
 
             cudaFree(d_Q); cudaFree(d_K); cudaFree(d_V);
             cudaFree(d_O); cudaFree(d_S);
@@ -81,6 +124,8 @@ static void run_bench(const char* kernel)
 
     if (strcmp(kernel, "naive") == 0)
         bench_kernel("naive", attention_naive, naive_bytes);
+    else if (strcmp(kernel, "fused_softmax") == 0)
+        bench_kernel("fused_softmax", attention_fused_softmax, fused_softmax_bytes);
     else {
         fprintf(stderr, "unknown kernel: %s\n", kernel);
         exit(1);
@@ -137,6 +182,9 @@ static void run_validate(const char* kernel,
 
     if (strcmp(kernel, "naive") == 0) {
         attention_naive(d_Q, d_K, d_V, d_O, d_S, p);
+    }
+    else if (strcmp(kernel, "fused_softmax") == 0){
+        attention_fused_softmax(d_Q, d_K, d_V, d_O, d_S, p);
     } else {
         fprintf(stderr, "unknown kernel: %s\n", kernel);
         exit(1);

@@ -21,3 +21,12 @@ void attention_naive(
     float* O,
     float* S_buf,
     const AttentionParams& p);
+
+// src/kernels/attention_fused_softmax.cu
+void attention_fused_softmax(
+    const float* Q,
+    const float* K,
+    const float* V,
+    float* O,
+    float* S_buf,
+    const AttentionParams& p);

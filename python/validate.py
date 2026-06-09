@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 
+import numpy as np
 import torch
 
 BINARY = os.path.join(os.path.dirname(__file__), '..', 'build', 'flash_attn')
