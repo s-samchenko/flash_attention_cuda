@@ -30,3 +30,12 @@ void attention_fused_softmax(
     float* O,
     float* S_buf,
     const AttentionParams& p);
+
+// src/kernels/attention_flash1.cu
+void attention_flash1(
+        const float* Q,
+        const float* K,
+        const float* V,
+        float* O,
+        float* S_buf,
+        const AttentionParams& p);

@@ -30,6 +30,11 @@ static long fused_softmax_bytes(int batch, int n_heads, long N, long D)
     return BH * (4L * N * D + 2L * N * N) * sizeof(float);
 }
 
+// FA1 only reads Q, K, V and writes O
+static long fa1_bytes(int batch, int n_heads, long N, long D) {
+    return (long)batch * n_heads * 4L * N * D * sizeof(float);
+}
+
 // ── metrics ──────────────────────────────────────────────────────────────────
 
 // RTX 3090 peaks
@@ -73,14 +78,17 @@ typedef void (*AttnFn)(const float*, const float*, const float*,
                        float*, float*, const AttentionParams&);
 
 static void bench_kernel(const char* name, AttnFn fn,
-                         long (*bytes_fn)(int, int, long, long))
+                         long (*bytes_fn)(int, int, long, long),
+                         int only_seq_len = 0, int only_head_dim = 0)
 {
     const int seq_lens[]  = {512, 1024, 2048, 4096};
     const int head_dims[] = {64, 128};
     const int batch = 1, n_heads = 8;
 
     for (int hd : head_dims) {
+        if (only_head_dim && hd != only_head_dim) continue;
         for (int sl : seq_lens) {
+            if (only_seq_len && sl != only_seq_len) continue;
             int  BH = batch * n_heads;
             long N  = sl, D = hd;
 
@@ -116,16 +124,18 @@ static void bench_kernel(const char* name, AttnFn fn,
     }
 }
 
-static void run_bench(const char* kernel)
+static void run_bench(const char* kernel, int only_seq_len = 0, int only_head_dim = 0)
 {
     cudaDeviceProp props;
     cudaGetDeviceProperties(&props, 0);
     printf("GPU: %s\n", props.name);
 
     if (strcmp(kernel, "naive") == 0)
-        bench_kernel("naive", attention_naive, naive_bytes);
+        bench_kernel("naive", attention_naive, naive_bytes, only_seq_len, only_head_dim);
     else if (strcmp(kernel, "fused_softmax") == 0)
-        bench_kernel("fused_softmax", attention_fused_softmax, fused_softmax_bytes);
+        bench_kernel("fused_softmax", attention_fused_softmax, fused_softmax_bytes, only_seq_len, only_head_dim);
+    else if (strcmp(kernel, "fa1") == 0)
+        bench_kernel("fa1", attention_flash1, fa1_bytes, only_seq_len, only_head_dim);
     else {
         fprintf(stderr, "unknown kernel: %s\n", kernel);
         exit(1);
@@ -183,8 +193,11 @@ static void run_validate(const char* kernel,
     if (strcmp(kernel, "naive") == 0) {
         attention_naive(d_Q, d_K, d_V, d_O, d_S, p);
     }
-    else if (strcmp(kernel, "fused_softmax") == 0){
+    else if (strcmp(kernel, "fused_softmax") == 0) {
         attention_fused_softmax(d_Q, d_K, d_V, d_O, d_S, p);
+    }
+    else if (strcmp(kernel, "fa1") == 0){
+        attention_flash1(d_Q, d_K, d_V, d_O, d_S, p);
     } else {
         fprintf(stderr, "unknown kernel: %s\n", kernel);
         exit(1);
@@ -209,10 +222,12 @@ int main(int argc, char* argv[])
 {
     if (argc > 1 && strcmp(argv[1], "bench") == 0) {
         if (argc < 3) {
-            fprintf(stderr, "usage: flash_attn bench <kernel>\n");
+            fprintf(stderr, "usage: flash_attn bench <kernel> [seq_len] [head_dim]\n");
             return 1;
         }
-        run_bench(argv[2]);
+        int only_seq_len  = argc > 3 ? atoi(argv[3]) : 0;
+        int only_head_dim = argc > 4 ? atoi(argv[4]) : 0;
+        run_bench(argv[2], only_seq_len, only_head_dim);
     } else if (argc > 1 && strcmp(argv[1], "validate") == 0) {
         if (argc < 8) {
             fprintf(stderr,
