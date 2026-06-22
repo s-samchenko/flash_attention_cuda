@@ -28,17 +28,16 @@ __global__ void attention_flash_1_kernel(
     for (int i = 0; i < D / Bc; ++i) {
         Q_i[ty * D + tx + i * Bc] = Q[(tile_j * N + tile_i * Br + ty) * D + tx + i * Bc];
     }
-    if (tx == 0) { m_i[ty] = -INFINITY; l_i[ty] = 0.f; }
-
-    __syncthreads();
+    if (tx == 0) {
+        m_i[ty] = -INFINITY;
+        l_i[ty] = 0.f;
+    }
 
     for (int j = 0; j < Tc; ++j) {
-        int tid = ty * Bc + tx;
-        for (int i = tid; i < Bc * D; i += Br * Bc) {
-            int k = i % Bc;
-            int d = i / Bc;
-            K_j[d * Bc + k] = K[(tile_j * N + j * Bc + k) * D + d];
-            V_j[k * D + d] = V[(tile_j * N + j * Bc + k) * D + d];
+        for (int i = 0; i < D / Br; ++i) {
+            int d = ty + Br * i;
+            K_j[d * Bc + tx] = K[(tile_j * N + j * Bc + tx) * D + d];
+            V_j[tx * D + d] = V[(tile_j * N + j * Bc + tx) * D + d];
         }
         __syncthreads();
 
