@@ -29,6 +29,7 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} \
     -Xcompiler -Wall \
     -Xcompiler -Wextra \
     --use_fast_math \
+    -Xptxas=-v \
 ")
 
 set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 -lineinfo")
