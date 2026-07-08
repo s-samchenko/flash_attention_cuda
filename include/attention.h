@@ -39,3 +39,12 @@ void attention_flash1(
         float* O,
         float* S_buf,
         const AttentionParams& p);
+
+// src/kernels/attention_flash2.cu
+void attention_flash2(
+        const float* Q,
+        const float* K,
+        const float* V,
+        float* O,
+        float* S_buf,
+        const AttentionParams& p);

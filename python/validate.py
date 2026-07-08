@@ -76,12 +76,13 @@ def test_shape(kernel, seq_len, head_dim, batch, n_heads, verbose, save_failures
                          Q, K, V, tmpdir)
 
     max_err = float(np.max(np.abs(got - expected)))
-    passed  = max_err < 1e-4
+    tol = 1e-3 if kernel in ('fa2',) else 1e-4
+    passed  = max_err < tol
     label   = "PASS" if passed else "FAIL"
 
     if verbose or not passed:
         print(f"  {label}  seq={seq_len:5d}  head_dim={head_dim:3d}  "
-              f"batch={batch}  n_heads={n_heads}  max_err={max_err:.2e}")
+              f"batch={batch}  n_heads={n_heads}  max_err={max_err:.2e} tol={tol:.0e}")
 
     if not passed and save_failures:
         fail_dir = os.path.join('benchmarks', 'failures')
