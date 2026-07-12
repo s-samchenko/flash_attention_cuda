@@ -17,6 +17,7 @@ import sys
 
 import numpy as np
 import torch
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 try:
     import matplotlib
@@ -26,27 +27,61 @@ try:
 except ImportError:
     HAS_MPL = False
 
+try:
+    from flash_attn import flash_attn_func
+    HAS_FLASH_ATTN = True
+except ImportError:
+    HAS_FLASH_ATTN = False
+
 BINARY      = os.path.join(os.path.dirname(__file__), '..', 'build', 'flash_attn')
 RESULTS_DIR = 'benchmarks/benchmark_results'
 PLOTS_DIR   = 'benchmarks/plots'
 
 # Locked shapes (seq_len, head_dim, batch, n_heads)
 SHAPES = [
-    (512,  64, 1, 8),
-    (1024, 64, 1, 8),
-    (2048, 64, 1, 8),
-    (4096, 64, 1, 8),
+    (512,  64,  1, 8),
+    (1024, 64,  1, 8),
+    (2048, 64,  1, 8),
+    (4096, 64,  1, 8),
+    (512,  128, 1, 8),
+    (1024, 128, 1, 8),
+    (2048, 128, 1, 8),
+    (4096, 128, 1, 8),
 ]
 
 
 # ── data collection ───────────────────────────────────────────────────────────
+SDPA_DTYPE = torch.float16
+
 
 def bench_sdpa(seq_len, head_dim, batch, n_heads, warmup=3, runs=10):
     device = 'cuda'
-    Q = torch.randn(batch, n_heads, seq_len, head_dim, device=device)
-    K = torch.randn(batch, n_heads, seq_len, head_dim, device=device)
-    V = torch.randn(batch, n_heads, seq_len, head_dim, device=device)
-    fn = lambda: torch.nn.functional.scaled_dot_product_attention(Q, K, V)
+    Q = torch.randn(batch, n_heads, seq_len, head_dim, device=device, dtype=SDPA_DTYPE)
+    K = torch.randn(batch, n_heads, seq_len, head_dim, device=device, dtype=SDPA_DTYPE)
+    V = torch.randn(batch, n_heads, seq_len, head_dim, device=device, dtype=SDPA_DTYPE)
+    ctx = sdpa_kernel([SDPBackend.FLASH_ATTENTION])
+    def fn():
+        with ctx:
+            return torch.nn.functional.scaled_dot_product_attention(Q, K, V)
+    for _ in range(warmup):
+        fn()
+    torch.cuda.synchronize()
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(runs):
+        fn()
+    end.record()
+    torch.cuda.synchronize()
+    return start.elapsed_time(end) / runs
+
+
+def bench_flash_attn(seq_len, head_dim, batch, n_heads, warmup=3, runs=10):
+    device = 'cuda'
+    Q = torch.randn(batch, seq_len, n_heads, head_dim, device=device, dtype=torch.float16)
+    K = torch.randn(batch, seq_len, n_heads, head_dim, device=device, dtype=torch.float16)
+    V = torch.randn(batch, seq_len, n_heads, head_dim, device=device, dtype=torch.float16)
+    fn = lambda: flash_attn_func(Q, K, V)
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -60,14 +95,18 @@ def bench_sdpa(seq_len, head_dim, batch, n_heads, warmup=3, runs=10):
     return start.elapsed_time(end) / runs
 
 
-def run_sdpa(out_dir):
+def _dtype_size(dtype):
+    return torch.tensor([], dtype=dtype).element_size()
+
+
+def _run_reference(out_dir, bench_fn, dtype):
     os.makedirs(out_dir, exist_ok=True)
     lines = []
+    dsize = _dtype_size(dtype)
     for seq_len, head_dim, batch, n_heads in SHAPES:
-        ms    = bench_sdpa(seq_len, head_dim, batch, n_heads)
+        ms = bench_fn(seq_len, head_dim, batch, n_heads)
         flops = 4 * batch * n_heads * seq_len * seq_len * head_dim
-        # Flash-style byte count (no N×N materialized)
-        bytes_accessed = batch * n_heads * 4 * seq_len * head_dim * 4
+        bytes_accessed = batch * n_heads * 4 * seq_len * head_dim * dsize
         line = (f"ms: {ms:.4f} flops: {flops} bytes: {bytes_accessed} "
                 f"seq_len: {seq_len} head_dim: {head_dim} batch: {batch} n_heads: {n_heads}")
         print(line)
@@ -75,7 +114,19 @@ def run_sdpa(out_dir):
     path = os.path.join(out_dir, 'results.txt')
     with open(path, 'w') as f:
         f.write('\n'.join(lines) + '\n')
-    print(f"  → {path}")
+    print(f" -> {path}")
+
+
+def run_sdpa(out_dir):
+    print(f"  sdpa dtype={SDPA_DTYPE}, backend pinned to FLASH_ATTENTION")
+    _run_reference(out_dir, bench_sdpa, SDPA_DTYPE)
+
+
+def run_flash_attn(out_dir):
+    if not HAS_FLASH_ATTN:
+        print("  flash_attn not installed — skipping (pip install flash-attn)")
+        return
+    _run_reference(out_dir, bench_flash_attn, torch.float16)
 
 
 def run_cuda_kernel(kernel_name, out_dir):
@@ -93,13 +144,11 @@ def run_cuda_kernel(kernel_name, out_dir):
     print(f"saved → {path}")
 
 
-# All CUDA kernels in implementation order — add each as it's implemented.
 CUDA_KERNELS = [
     'naive',
-    # 'fused_softmax',
-    # 'fa1_fp32',
-    # 'fa2_fp32',
-    # 'fa2_fp16',
+    'fused_softmax',
+    'fa1',
+    'fa2',
 ]
 
 
@@ -163,12 +212,12 @@ def print_table(kernel_filter=None):
             continue
         rows = sorted(data[name], key=lambda r: (r['head_dim'], r['seq_len']))
         for r in rows:
-            ms     = r['ms']
-            sl     = int(r['seq_len'])
-            hd     = int(r['head_dim'])
-            gbps   = r['bytes'] / (ms / 1000) / 1e9
+            ms = r['ms']
+            sl = int(r['seq_len'])
+            hd = int(r['head_dim'])
+            gbps = r['bytes'] / (ms / 1000) / 1e9
             tflops = r['flops'] / (ms / 1000) / 1e12
-            key    = (sl, hd)
+            key = (sl, hd)
             if name == 'naive':
                 vs = '1x'
             elif key in naive_ms and naive_ms[key]:
@@ -182,9 +231,9 @@ def print_table(kernel_filter=None):
 # ── plotting ──────────────────────────────────────────────────────────────────
 
 COLORS = {
-    'naive':        'tab:blue',
+    'naive': 'tab:blue',
     'pytorch_sdpa': 'tab:green',
-    'flash_attn':   'tab:red',
+    'flash_attn': 'tab:red',
 }
 
 def kernel_color(name):
@@ -288,24 +337,28 @@ def generate_plots():
         path = os.path.join(PLOTS_DIR, fname)
         fig.savefig(path, dpi=150)
         plt.close(fig)
-        print(f"  → {path}")
+        print(f" -> {path}")
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--run',    action='store_true', help='collect benchmark data')
-    parser.add_argument('--table',  action='store_true', help='print results.md rows')
-    parser.add_argument('--plot',   action='store_true', help='generate plots (week 10)')
-    parser.add_argument('--kernel', default=None,        help='target a specific kernel')
+    parser.add_argument('--run', action='store_true', help='collect benchmark data')
+    parser.add_argument('--table', action='store_true', help='print results.md rows')
+    parser.add_argument('--plot', action='store_true', help='generate plots (week 10)')
+    parser.add_argument('--kernel', default=None, help='target a specific kernel')
     args = parser.parse_args()
 
     if args.run:
+        reference_targets = {'pytorch_sdpa', 'flash_attn'}
         if args.kernel in (None, 'pytorch_sdpa'):
             print("collecting pytorch_sdpa baseline...")
             run_sdpa(os.path.join(RESULTS_DIR, 'pytorch_sdpa'))
-        kernels = [args.kernel] if args.kernel and args.kernel != 'pytorch_sdpa' else CUDA_KERNELS
+        if args.kernel in (None, 'flash_attn'):
+            print("\ncollecting flash_attn baseline...")
+            run_flash_attn(os.path.join(RESULTS_DIR, 'flash_attn'))
+        kernels = [args.kernel] if args.kernel and args.kernel not in reference_targets else CUDA_KERNELS
         for name in kernels:
             print(f"\ncollecting {name}...")
             run_cuda_kernel(name, os.path.join(RESULTS_DIR, name))

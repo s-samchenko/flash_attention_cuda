@@ -16,7 +16,7 @@
 
 ## Attention Kernels
 
-| Date       | Kernel        |  seq | head_dim | ms/run  |  GB/s | TFLOPS | AI (F/B) | vs. naive |
+| Date       | Kernel        |  seq | head_dim |  ms/run |  GB/s | TFLOPS | AI (F/B) | vs. naive |
 |------------|---------------|-----:|---------:|--------:|------:|-------:|---------:|----------:|
 | 2026-06-07 | naive         |  512 |       64 |   1.264 |  29.9 |  0.425 |     14.2 |      1.0x |
 | 2026-06-07 | naive         | 1024 |       64 |   5.084 |  28.0 |  0.422 |     15.1 |      1.0x |
@@ -26,30 +26,30 @@
 | 2026-06-07 | naive         | 1024 |      128 |   8.396 |  18.0 |  0.512 |     28.4 |      1.0x |
 | 2026-06-07 | naive         | 2048 |      128 |  32.928 |  17.3 |  0.522 |     30.1 |      1.0x |
 | 2026-06-07 | naive         | 4096 |      128 | 134.408 |  16.5 |  0.511 |     31.0 |      1.0x |
-| 2026-06-07 | fused_softmax |  512 |       64 |   0.182 | 115.0 |  2.943 |     25.6 |      6.9x |
-| 2026-06-07 | fused_softmax | 1024 |       64 |   0.789 |  95.7 |  2.722 |     28.4 |      6.4x |
-| 2026-06-07 | fused_softmax | 2048 |       64 |   3.166 |  90.1 |  2.713 |     30.1 |      5.7x |
-| 2026-06-07 | fused_softmax | 4096 |       64 |  19.326 |  57.3 |  1.778 |     31.0 |      3.5x |
-| 2026-06-07 | fused_softmax |  512 |      128 |   0.289 |  87.1 |  3.715 |     42.7 |      7.2x |
-| 2026-06-07 | fused_softmax | 1024 |      128 |   1.720 |  48.8 |  2.498 |     51.2 |      4.9x |
-| 2026-06-07 | fused_softmax | 2048 |      128 |   7.284 |  41.5 |  2.358 |     56.9 |      4.5x |
-| 2026-06-07 | fused_softmax | 4096 |      128 |  20.543 |  55.5 |  3.345 |     60.2 |      6.5x |
-| 2026-06-27 | fa1           |  512 |       64 |   1.145 |   3.7 |  0.469 |    128.0 |      1.1x |
-| 2026-06-27 | fa1           | 1024 |       64 |   1.322 |   6.3 |  1.625 |    256.0 |      3.8x |
-| 2026-06-27 | fa1           | 2048 |       64 |   1.575 |  10.7 |  5.455 |    512.0 |     11.4x |
-| 2026-06-27 | fa1           | 4096 |       64 |   5.063 |   6.6 |  6.786 |   1024.0 |     13.2x |
-| 2026-06-27 | fa1           |  512 |      128 |   1.297 |   6.5 |  0.828 |    128.0 |      1.6x |
-| 2026-06-27 | fa1           | 1024 |      128 |   1.363 |  12.3 |  3.152 |    256.0 |      6.2x |
-| 2026-06-27 | fa1           | 2048 |      128 |   3.269 |  10.3 |  5.255 |    512.0 |     10.1x |
-| 2026-06-27 | fa1           | 4096 |      128 |  11.329 |   5.9 |  6.066 |   1024.0 |     11.9x |
-| 2026-07-08 | fa2_tf32      |  512 |       64 |   1.226 |   3.4 |  0.438 |    128.0 |      1.0x |
-| 2026-07-08 | fa2_tf32      | 1024 |       64 |   1.555 |   5.4 |  1.381 |    256.0 |      3.3x |
-| 2026-07-08 | fa2_tf32      | 2048 |       64 |   1.752 |   9.6 |  4.904 |    512.0 |     10.3x |
-| 2026-07-08 | fa2_tf32      | 4096 |       64 |   5.922 |   5.7 |  5.802 |   1024.0 |     11.3x |
-| 2026-07-08 | fa2_tf32      |  512 |      128 |   1.293 |   6.5 |  0.830 |    128.0 |      1.6x |
-| 2026-07-08 | fa2_tf32      | 1024 |      128 |   1.412 |  11.9 |  3.041 |    256.0 |      5.9x |
-| 2026-07-08 | fa2_tf32      | 2048 |      128 |   3.563 |   9.4 |  4.821 |    512.0 |      9.2x |
-| 2026-07-08 | fa2_tf32      | 4096 |      128 |  12.217 |   5.5 |  5.625 |   1024.0 |     11.0x |
+| 2026-06-07 | fused_softmax |  512 |       64 |   0.172 | 121.9 |  3.121 |     25.6 |      7.3x |
+| 2026-06-07 | fused_softmax | 1024 |       64 |   0.936 |  80.6 |  2.293 |     28.4 |      5.4x |
+| 2026-06-07 | fused_softmax | 2048 |       64 |   3.681 |  77.5 |  2.334 |     30.1 |      4.9x |
+| 2026-06-07 | fused_softmax | 4096 |       64 |  14.245 |  77.7 |  2.412 |     31.0 |      4.7x |
+| 2026-06-07 | fused_softmax |  512 |      128 |   0.428 |  58.8 |  2.510 |     42.7 |      4.9x |
+| 2026-06-07 | fused_softmax | 1024 |      128 |   1.855 |  45.2 |  2.315 |     51.2 |      4.5x |
+| 2026-06-07 | fused_softmax | 2048 |      128 |   7.560 |  39.9 |  2.272 |     56.9 |      4.4x |
+| 2026-06-07 | fused_softmax | 4096 |      128 |  29.659 |  38.5 |  2.317 |     60.2 |      4.5x |
+| 2026-06-27 | fa1           |  512 |       64 |   1.740 |   2.4 |  0.309 |    128.0 |      0.7x |
+| 2026-06-27 | fa1           | 1024 |       64 |   1.735 |   4.8 |  1.238 |    256.0 |      2.9x |
+| 2026-06-27 | fa1           | 2048 |       64 |   2.060 |   8.1 |  4.171 |    512.0 |      8.7x |
+| 2026-06-27 | fa1           | 4096 |       64 |   4.663 |   7.2 |  7.368 |   1024.0 |     14.4x |
+| 2026-06-27 | fa1           |  512 |      128 |   1.874 |   4.5 |  0.573 |    128.0 |      1.1x |
+| 2026-06-27 | fa1           | 1024 |      128 |   2.067 |   8.1 |  2.078 |    256.0 |      4.1x |
+| 2026-06-27 | fa1           | 2048 |      128 |   3.244 |  10.3 |  5.296 |    512.0 |     10.2x |
+| 2026-06-27 | fa1           | 4096 |      128 |  11.032 |   6.1 |  6.229 |   1024.0 |     12.2x |
+| 2026-07-08 | fa2_tf32      |  512 |       64 |   2.050 |   2.0 |  0.262 |    128.0 |      0.6x |
+| 2026-07-08 | fa2_tf32      | 1024 |       64 |   1.770 |   4.7 |  1.213 |    256.0 |      2.9x |
+| 2026-07-08 | fa2_tf32      | 2048 |       64 |   1.943 |   8.6 |  4.421 |    512.0 |      9.2x |
+| 2026-07-08 | fa2_tf32      | 4096 |       64 |   5.685 |   5.9 |  6.044 |   1024.0 |     11.8x |
+| 2026-07-08 | fa2_tf32      |  512 |      128 |   1.839 |   4.6 |  0.584 |    128.0 |      1.1x |
+| 2026-07-08 | fa2_tf32      | 1024 |      128 |   1.857 |   9.0 |  2.313 |    256.0 |      4.5x |
+| 2026-07-08 | fa2_tf32      | 2048 |      128 |   3.763 |   8.9 |  4.565 |    512.0 |      8.7x |
+| 2026-07-08 | fa2_tf32      | 4096 |      128 |  12.726 |   5.3 |  5.400 |   1024.0 |     10.6x |
 
 ---
 
@@ -160,12 +160,11 @@ Flash Attention only outperforms fused softmax past seq ≈ 1024–2048. At seq=
 Moving from a 64x64 tile to 64x32 (8 -> 16 warps per block) gave 4x throughput at hd=128 but regressed hd=64 from 7.30 to 6.79 TFLOPS at seq=4096. At hd=128 the kernel was latency-bound at 2 warps/SM, so extra warps helped hide stalls; at hd=64 the kernel was already MIO-bound, and additional warps added pressure to the already-saturated L1 pipe. The 64x32 config was selected for consistency across both head dims.
 
 ### Ceiling on FP32 flash-attention
-fa1 achieves 6.8 TFLOPS at seq=4096 hd=64, or 19% of the 3090's FP32 peak. Reported tuned FP32 flash-attention implementations peak in the 9–14 TFLOPS range. Further FP32 gains would require float4 SRAM vectorization, which conflicts with the padding used to eliminate bank conflicts. Optimization effort was redirected to the tensor-core port (FA2), which has a higher throughput ceiling.
+fa1 achieves 7.3 TFLOPS at seq=4096 hd=64, or 20% of the 3090's FP32 peak. Reported tuned FP32 flash-attention implementations peak in the 9–14 TFLOPS range. Further FP32 gains would require float4 SRAM vectorization, which conflicts with the padding used to eliminate bank conflicts. Optimization effort was redirected to the tensor-core port (FA2), which has a higher throughput ceiling.
 
 ### fa2_tf32 does not beat fa1 on the 3090
-FA2 with TF32 tensor cores achieves 0.85–0.93x of fa1 at seq=4096. Two factors account for this:
+FA2 with TF32 tensor cores achieves 0.85–0.93x of fa1 at seq=4096. The biggest factor:
 
-1. **Limited arithmetic headroom.** On the 3090, TF32 tensor-core throughput is only modestly above the FP32 CUDA-core rate — unlike the A100, where TF32 TC delivers 8x the FP32 rate. fa1 was already at 19% of the 35.6 TFLOPS FP32 ceiling; swapping to TF32 tensor cores on the same silicon raises the ceiling only slightly.
-2. **Occupancy regression.** The FP32 O accumulator held in SRAM (chosen for portability across GPU generations — the alternative depends on documented but implementation-defined accumulator lane layouts) plus FP32 Q/K/V staging exceeds the 48 KB default and forces opt-in SRAM mode. Achieved occupancy drops from fa1's 32% to 16% at hd=64 and 8% at hd=128, and the tensor-core arithmetic does not compensate.
+**Occupancy regression.** The FP32 O accumulator held in SRAM (chosen for portability across GPU generations — the alternative depends on documented but implementation-defined accumulator lane layouts) plus FP32 Q/K/V staging exceeds the 48 KB default and forces opt-in SRAM mode. Achieved occupancy drops from fa1's 32% to 16% at hd=64 and 8% at hd=128, and the tensor-core arithmetic does not compensate.
 
-Both factors resolve at FP16: FP16 tensor cores deliver 71 TFLOPS on the 3090 (2x FP32/TF32), and Q/K/V storage halves, freeing SRAM budget for more blocks per SM. FP16 numbers will be added when landed.
+It will resolve at FP16: FP16 tensor cores deliver 71 TFLOPS on the 3090 (2x FP32/TF32), and Q/K/V storage halves, freeing SRAM budget for more blocks per SM. FP16 numbers will be added when landed.

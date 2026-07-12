@@ -39,7 +39,7 @@ static long fa1_bytes(int batch, int n_heads, long N, long D) {
 
 // RTX 3090 peaks
 constexpr float PEAK_BANDWIDTH_GB_S = 936.0f;
-constexpr float PEAK_TFLOPS_FP32    = 35.5f;
+constexpr float PEAK_TFLOPS_FP32 = 35.5f;
 
 struct KernelMetrics {
     float ms;
@@ -53,12 +53,12 @@ struct KernelMetrics {
 static KernelMetrics compute_metrics(float ms, long flops, long bytes)
 {
     KernelMetrics m;
-    m.ms                   = ms;
-    m.bandwidth_gb_s       = (bytes / 1e9f) / (ms / 1e3f);
-    m.tflops               = (flops / 1e12f) / (ms / 1e3f);
+    m.ms = ms;
+    m.bandwidth_gb_s = (bytes / 1e9f) / (ms / 1e3f);
+    m.tflops = (flops / 1e12f) / (ms / 1e3f);
     m.arithmetic_intensity = (float)flops / (float)bytes;
-    m.pct_peak_bandwidth   = (m.bandwidth_gb_s / PEAK_BANDWIDTH_GB_S) * 100.0f;
-    m.pct_peak_tflops      = (m.tflops / PEAK_TFLOPS_FP32) * 100.0f;
+    m.pct_peak_bandwidth = (m.bandwidth_gb_s / PEAK_BANDWIDTH_GB_S) * 100.0f;
+    m.pct_peak_tflops = (m.tflops / PEAK_TFLOPS_FP32) * 100.0f;
     return m;
 }
 
@@ -79,9 +79,10 @@ typedef void (*AttnFn)(const float*, const float*, const float*,
 
 static void bench_kernel(const char* name, AttnFn fn,
                          long (*bytes_fn)(int, int, long, long),
+                         bool needs_S,
                          int only_seq_len = 0, int only_head_dim = 0)
 {
-    const int seq_lens[]  = {512, 1024, 2048, 4096};
+    const int seq_lens[] = {512, 1024, 2048, 4096};
     const int head_dims[] = {64, 128};
     const int batch = 1, n_heads = 8;
 
@@ -89,27 +90,29 @@ static void bench_kernel(const char* name, AttnFn fn,
         if (only_head_dim && hd != only_head_dim) continue;
         for (int sl : seq_lens) {
             if (only_seq_len && sl != only_seq_len) continue;
-            int  BH = batch * n_heads;
-            long N  = sl, D = hd;
+            int BH = batch * n_heads;
+            long N = sl, D = hd;
 
-            float *d_Q, *d_K, *d_V, *d_O, *d_S;
+            float *d_Q, *d_K, *d_V, *d_O, *d_S = nullptr;
             cudaMalloc(&d_Q, BH * N * D * sizeof(float));
             cudaMalloc(&d_K, BH * N * D * sizeof(float));
             cudaMalloc(&d_V, BH * N * D * sizeof(float));
             cudaMalloc(&d_O, BH * N * D * sizeof(float));
-            cudaMalloc(&d_S, BH * N * N * sizeof(float));
+            if (needs_S){
+                cudaMalloc(&d_S, BH * N * N * sizeof(float));
+            }
 
             fill_rand(d_Q, BH * N * D);
             fill_rand(d_K, BH * N * D);
             fill_rand(d_V, BH * N * D);
 
             AttentionParams p;
-            p.batch    = batch;
-            p.n_heads  = n_heads;
-            p.seq_len  = sl;
+            p.batch = batch;
+            p.n_heads = n_heads;
+            p.seq_len = sl;
             p.head_dim = hd;
-            p.causal   = false;
-            p.scale    = 1.0f / sqrtf((float)hd);
+            p.causal = false;
+            p.scale = 1.0f / sqrtf((float)hd);
 
             float ms = benchmark_kernel([&]() { fn(d_Q, d_K, d_V, d_O, d_S, p); });
 
@@ -118,8 +121,13 @@ static void bench_kernel(const char* name, AttnFn fn,
 
             print_metrics(name, sl, hd, compute_metrics(ms, flops, bytes));
 
-            cudaFree(d_Q); cudaFree(d_K); cudaFree(d_V);
-            cudaFree(d_O); cudaFree(d_S);
+            cudaFree(d_Q);
+            cudaFree(d_K);
+            cudaFree(d_V);
+            cudaFree(d_O);
+            if (d_S){
+                cudaFree(d_S);
+            }
         }
     }
 }
@@ -131,13 +139,13 @@ static void run_bench(const char* kernel, int only_seq_len = 0, int only_head_di
     printf("GPU: %s\n", props.name);
 
     if (strcmp(kernel, "naive") == 0)
-        bench_kernel("naive", attention_naive, naive_bytes, only_seq_len, only_head_dim);
+        bench_kernel("naive", attention_naive, naive_bytes, /*needs_S=*/true, only_seq_len, only_head_dim);
     else if (strcmp(kernel, "fused_softmax") == 0)
-        bench_kernel("fused_softmax", attention_fused_softmax, fused_softmax_bytes, only_seq_len, only_head_dim);
+        bench_kernel("fused_softmax", attention_fused_softmax, fused_softmax_bytes, /*needs_S=*/true, only_seq_len, only_head_dim);
     else if (strcmp(kernel, "fa1") == 0)
-        bench_kernel("fa1", attention_flash1, fa1_bytes, only_seq_len, only_head_dim);
+        bench_kernel("fa1", attention_flash1, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
     else if (strcmp(kernel, "fa2") == 0)
-        bench_kernel("fa2", attention_flash2, fa1_bytes, only_seq_len, only_head_dim);
+        bench_kernel("fa2", attention_flash2, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
     else {
         fprintf(stderr, "unknown kernel: %s\n", kernel);
         exit(1);
@@ -162,7 +170,7 @@ static void run_validate(const char* kernel,
                          int seq_len, int head_dim, int batch, int n_heads,
                          const char* io_dir)
 {
-    int  BH           = batch * n_heads;
+    int BH = batch * n_heads;
     long tensor_elems = (long)BH * seq_len * head_dim;
 
     std::vector<float> h_Q(tensor_elems), h_K(tensor_elems),
@@ -173,24 +181,27 @@ static void run_validate(const char* kernel,
     snprintf(path, sizeof(path), "%s/K.bin", io_dir); read_bin(path, h_K);
     snprintf(path, sizeof(path), "%s/V.bin", io_dir); read_bin(path, h_V);
 
-    float *d_Q, *d_K, *d_V, *d_O, *d_S;
+    bool needs_S = (strcmp(kernel, "naive") == 0 ||
+                    strcmp(kernel, "fused_softmax") == 0);
+
+    float *d_Q, *d_K, *d_V, *d_O, *d_S = nullptr;
     cudaMalloc(&d_Q, tensor_elems * sizeof(float));
     cudaMalloc(&d_K, tensor_elems * sizeof(float));
     cudaMalloc(&d_V, tensor_elems * sizeof(float));
     cudaMalloc(&d_O, tensor_elems * sizeof(float));
-    cudaMalloc(&d_S, (long)BH * seq_len * seq_len * sizeof(float));
+    if (needs_S) cudaMalloc(&d_S, (long)BH * seq_len * seq_len * sizeof(float));
 
     cudaMemcpy(d_Q, h_Q.data(), tensor_elems * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_K, h_K.data(), tensor_elems * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_V, h_V.data(), tensor_elems * sizeof(float), cudaMemcpyHostToDevice);
 
     AttentionParams p;
-    p.batch    = batch;
-    p.n_heads  = n_heads;
-    p.seq_len  = seq_len;
+    p.batch = batch;
+    p.n_heads = n_heads;
+    p.seq_len = seq_len;
     p.head_dim = head_dim;
-    p.causal   = false;
-    p.scale    = 1.0f / sqrtf((float)head_dim);
+    p.causal = false;
+    p.scale = 1.0f / sqrtf((float)head_dim);
 
     if (strcmp(kernel, "naive") == 0) {
         attention_naive(d_Q, d_K, d_V, d_O, d_S, p);
@@ -218,10 +229,11 @@ static void run_validate(const char* kernel,
     fclose(f);
 
     cudaFree(d_Q); cudaFree(d_K); cudaFree(d_V);
-    cudaFree(d_O); cudaFree(d_S);
+    cudaFree(d_O);
+    if (d_S) {
+        cudaFree(d_S);
+    }
 }
-
-// ── entry point ───────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[])
 {
@@ -230,7 +242,7 @@ int main(int argc, char* argv[])
             fprintf(stderr, "usage: flash_attn bench <kernel> [seq_len] [head_dim]\n");
             return 1;
         }
-        int only_seq_len  = argc > 3 ? atoi(argv[3]) : 0;
+        int only_seq_len = argc > 3 ? atoi(argv[3]) : 0;
         int only_head_dim = argc > 4 ? atoi(argv[4]) : 0;
         run_bench(argv[2], only_seq_len, only_head_dim);
     } else if (argc > 1 && strcmp(argv[1], "validate") == 0) {
