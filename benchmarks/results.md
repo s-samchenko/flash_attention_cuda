@@ -10,7 +10,7 @@
 
 - `naive`: `BH*(4*N*D + 4*N*N)*4` – attention matrix materialized in HBM; 4 passes over it
 - `fused_softmax`: `BH*(4*N*D + 2*N*N)*4` — attention matrix materialized; 2 passes
-- `fa1`, `fa2_tf32`: `BH*4*N*D*4` — attention matrix stays in SRAM
+- `fa1`, `fa2_tf32`, `fa2_fp16v1`: `BH*4*N*D*4` — attention matrix stays in SRAM (fa2_fp16v1 reads fp32 globals, converts to half in smem)
 
 ---
 
@@ -50,10 +50,44 @@
 | 2026-07-08 | fa2_tf32      | 1024 |      128 |   1.857 |   9.0 |  2.313 |    256.0 |      4.5x |
 | 2026-07-08 | fa2_tf32      | 2048 |      128 |   3.763 |   8.9 |  4.565 |    512.0 |      8.7x |
 | 2026-07-08 | fa2_tf32      | 4096 |      128 |  12.726 |   5.3 |  5.400 |   1024.0 |     10.6x |
+| 2026-07-11 | fa2_fp16v1    |  512 |       64 |   0.088 |  47.9 |  6.125 |    128.0 |     14.4x |
+| 2026-07-11 | fa2_fp16v1    | 1024 |       64 |   0.270 |  31.0 |  7.947 |    256.0 |     18.8x |
+| 2026-07-11 | fa2_fp16v1    | 2048 |       64 |   0.681 |  24.6 | 12.618 |    512.0 |     26.4x |
+| 2026-07-11 | fa2_fp16v1    | 4096 |       64 |   2.758 |  12.2 | 12.459 |   1024.0 |     24.3x |
+| 2026-07-11 | fa2_fp16v1    |  512 |      128 |   0.239 |  35.1 |  4.487 |    128.0 |      8.7x |
+| 2026-07-11 | fa2_fp16v1    | 1024 |      128 |   0.463 |  36.3 |  9.283 |    256.0 |     18.1x |
+| 2026-07-11 | fa2_fp16v1    | 2048 |      128 |   1.822 |  18.4 |  9.428 |    512.0 |     18.1x |
+| 2026-07-11 | fa2_fp16v1    | 4096 |      128 |   5.967 |  11.2 | 11.516 |   1024.0 |     22.5x |
 
 ---
 
 ## Roofline Analysis
+
+### fa2_fp16v1
+```
+Arithmetic intensity: 128–1024 FLOP/B (identical to fa1/fa2_tf32; NxN stays in SRAM)
+Roofline bound:       compute
+Achieved compute:     12.5 TFLOPS at seq=4096 hd=64 — 17.5% of effective peak.
+                      Effective peak here is 71 TFLOPS, not 142: GA102 halves
+                      FP16 tensor-core rate when accumulating in FP32, and the
+                      softmax needs FP32 accumulation.
+Achieved bandwidth:   11–48 GB/s of 936 GB/s (<5% peak; low by design)
+Actual bound:         shared-memory latency. DRAM sits at 1%, tensor cores at
+                      16% — the busy unit is the L1/smem pipe, and mostly on
+                      replays rather than useful traffic: shared loads average
+                      a 23-way bank conflict, and with 3–4 blocks/SM there are
+                      only ~3 warps per scheduler to hide the stalls. An
+                      instruction issues about once every 11 cycles.
+Bottleneck:           every smem row stride (K/V tiles, S and P tiles) is a
+                      multiple of 128 B, so WMMA fragment loads and the
+                      softmax keep landing on the same banks. Occupancy is
+                      capped by registers and smem simultaneously. On top of
+                      that, fp32 inputs are converted to half in smem on
+                      every K/V tile, keeping global loads on the critical
+                      path. Next: de-align the smem strides, then raise
+                      blocks/SM, then store fp16 in global so K/V tiles can
+                      be prefetched with cp.async.
+```
 
 ### fa2_tf32
 ```
@@ -114,6 +148,45 @@ Bottleneck:           full NxN attention matrix materialized in HBM (3 kernels,
 
 ## Nsight Compute Profiles
 
+### fa2_fp16v1 — seq=4096, Br=64, Bc=32
+```
+ Speed of Light                        hd=64      hd=128
+ ─────────────────────────────────────────────────────────
+   L1/TEX cache throughput             76.38%     64.64%
+   Compute (SM) throughput             15.65%     12.62%
+   DRAM throughput                      1.01%      1.08%
+
+ Shared-memory conflicts
+ ─────────────────────────────────────────────────────────
+   Avg. bank conflict per shared load  22.9-way   25.7-way
+   Conflicted share of load wavefronts 87.8%      87.7%
+   Excessive shared wavefronts (all)   84%        84%
+
+ Scheduler / warp state
+ ─────────────────────────────────────────────────────────
+   Eligible warps/scheduler            0.10       0.09
+   Warp cycles per issued instruction  36.2       35.8
+   Top stall                           MIO short  L1TEX long
+                                       scoreboard scoreboard
+                                       43.7%      45.9%
+
+ Occupancy / launch
+ ─────────────────────────────────────────────────────────
+   Registers/thread                    98         158
+   Dynamic SRAM/block                  20.5 KB    32.8 KB
+   Blocks/SM (regs AND smem limited)   4          3
+   Waves per SM                        1.56       2.08
+```
+
+**Bottleneck:** SRAM latency, twice over. Every SRAM row stride is a multiple
+of 128 B, so WMMA fragment loads and the scalar softmax hit near-worst-case
+bank conflicts — the L1 pipe is ~76% busy doing ~8x redundant wavefronts. With
+only 3–4 blocks/SM (dual-limited by registers and SRAM), ~3 warps per scheduler
+cannot hide the serialized accesses: an instruction issues once every ~11
+cycles. At hd=128 the synchronous FP32 global staging adds an equal share of
+long-scoreboard stalls. The 1.56-wave launch at hd=64 seq=4096 adds a
+partial-wave tail on top.
+
 ### fa2_tf32 — hd=128, seq=4096
 ```
  Occupancy
@@ -168,3 +241,41 @@ FA2 with TF32 tensor cores achieves 0.85–0.93x of fa1 at seq=4096. The biggest
 **Occupancy regression.** The FP32 O accumulator held in SRAM (chosen for portability across GPU generations — the alternative depends on documented but implementation-defined accumulator lane layouts) plus FP32 Q/K/V staging exceeds the 48 KB default and forces opt-in SRAM mode. Achieved occupancy drops from fa1's 32% to 16% at hd=64 and 8% at hd=128, and the tensor-core arithmetic does not compensate.
 
 It will resolve at FP16: FP16 tensor cores deliver 71 TFLOPS on the 3090 (2x FP32/TF32), and Q/K/V storage halves, freeing SRAM budget for more blocks per SM. FP16 numbers will be added when landed.
+
+### fa2_fp16v1: where the 2x over fa2_tf32 comes from
+Halving the element size fixed both problems from the fa2_tf32 analysis at
+once. Per-block SRAM for Q/K/V staging drops from 40 KB to 20.5 KB at hd=64
+and from 72 KB to 32.8 KB at hd=128, lifting occupancy from 2/1 blocks per SM
+to 4/3 — from 8/4 active warps per SM to ~13. For a latency-bound kernel this
+is the main lever: three times as many warps for the scheduler to hide the
+same stalls with. And the arithmetic ceiling actually moves this time: TF32
+tensor cores on GA102 run at 35.6 TFLOPS, the same rate as the plain FP32
+cores, so fa2_tf32 had nothing to gain even at full utilization. FP16 with
+FP32 accumulation runs at 71 TFLOPS.
+
+Two smaller effects point the same way: the mma K-step widens from 8 to 16,
+halving the mma instruction count per tile, and fragment loads move half the
+bytes through the smem pipe that is already the bottleneck. The softmax
+accumulators (running max, normalizer, O) stayed in FP32, so the numerics of
+the online softmax are unchanged — only storage and matmul inputs narrowed —
+and the kernel still validates against the PyTorch SDPA reference.
+
+Net: 5.4–6.0 -> 11.5–12.5 TFLOPS at seq=4096, 2.1x over fa2_tf32 and 1.7–1.8x
+over fa1. Best result so far is 26x over naive, at seq=2048 hd=64.
+
+### fa2_fp16v1: seq=2048 slightly beats seq=4096 at hd=64
+12.62 vs 12.46 TFLOPS. This is wave quantization, not a kernel property: at
+4 blocks/SM the GPU holds 328 blocks in flight, so seq=2048 (256 blocks) runs
+as a single wave while seq=4096 (512 blocks) runs one full wave plus a
+184-block tail on a mostly idle machine. Not worth fixing directly — raising
+blocks/SM shrinks it as a side effect.
+
+### fa2_fp16v1: where the remaining headroom is
+Nsight attributes 84% of shared-memory wavefronts to bank conflicts: every
+smem row stride is 128 B-aligned, so fragment loads and the softmax hit the
+same banks over and over (estimated 55–67% speedup from fixing this alone).
+Behind that, occupancy is capped at 3–4 blocks/SM by registers and smem
+together, and K/V tiles are loaded from global and converted fp32 -> half
+synchronously inside the inner loop. The plan, in order: de-align the smem
+strides, then free enough registers/smem for a fifth block per SM, then store
+fp16 in global and double-buffer the K/V loads with cp.async.

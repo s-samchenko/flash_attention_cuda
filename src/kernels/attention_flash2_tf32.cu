@@ -26,7 +26,7 @@ template<class Frag>
 }
 
 template<int D, int Br, int Bc>
-__global__ void attention_flash_2_kernel(
+__global__ void attention_flash_2_tf32_kernel(
         const float* __restrict Q,
         const float* __restrict K,
         const float* __restrict V,
@@ -196,31 +196,31 @@ static void launch(const float* Q, const float* K, const float* V,
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, 0);
     if (smem_bytes > prop.sharedMemPerBlockOptin) {
-        fprintf(stderr, "fa2: requested %zu B smem > device max %zu B (D=%d Br=%d Bc=%d)\n",
+        fprintf(stderr, "fa2_tf32: requested %zu B smem > device max %zu B (D=%d Br=%d Bc=%d)\n",
                 smem_bytes, prop.sharedMemPerBlockOptin, D, Br, Bc);
         exit(1);
     }
 
     cudaError_t e = cudaFuncSetAttribute(
-            attention_flash_2_kernel<D, Br, Bc>,
+            attention_flash_2_tf32_kernel<D, Br, Bc>,
             cudaFuncAttributeMaxDynamicSharedMemorySize,
             smem_bytes);
     if (e != cudaSuccess) {
-        fprintf(stderr, "fa2: cudaFuncSetAttribute failed: %s\n", cudaGetErrorString(e));
+        fprintf(stderr, "fa2_tf32: cudaFuncSetAttribute failed: %s\n", cudaGetErrorString(e));
         exit(1);
     }
 
     int Tr = (N + Br - 1) / Br;
-    attention_flash_2_kernel<D, Br, Bc> <<<dim3(Tr, B), THREADS, smem_bytes>>>(Q, K, V, O, N, scale);
+    attention_flash_2_tf32_kernel<D, Br, Bc> <<<dim3(Tr, B), THREADS, smem_bytes>>>(Q, K, V, O, N, scale);
 
     cudaError_t le = cudaGetLastError();
     if (le != cudaSuccess) {
-        fprintf(stderr, "fa2 launch failed: %s\n", cudaGetErrorString(le));
+        fprintf(stderr, "fa2_tf32 launch failed: %s\n", cudaGetErrorString(le));
         exit(1);
     }
 }
 
-void attention_flash2(
+void attention_flash2_tf32(
         const float* Q,
         const float* K,
         const float* V,

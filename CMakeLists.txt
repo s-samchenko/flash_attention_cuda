@@ -41,7 +41,8 @@ set(KERNEL_SOURCES
         src/kernels/attention_naive.cu
         src/kernels/attention_fused_softmax.cu
         src/kernels/attention_flash1.cu
-        src/kernels/attention_flash2.cu
+        src/kernels/attention_flash2_tf32.cu
+        src/kernels/attention_flash2_fp16.cu
 )
 
 add_executable(flash_attn

@@ -148,7 +148,8 @@ CUDA_KERNELS = [
     'naive',
     'fused_softmax',
     'fa1',
-    'fa2',
+    'fa2_tf32',
+    'fa2_fp16',
 ]
 
 
