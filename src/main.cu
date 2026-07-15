@@ -148,6 +148,8 @@ static void run_bench(const char* kernel, int only_seq_len = 0, int only_head_di
         bench_kernel("fa2_tf32", attention_flash2_tf32, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
     else if (strcmp(kernel, "fa2_fp16") == 0)
         bench_kernel("fa2_fp16", attention_flash2_fp16, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
+    else if (strcmp(kernel, "fa2_fp16v2") == 0)
+        bench_kernel("fa2_fp16v2", attention_flash2_fp16v2, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
     else {
         fprintf(stderr, "unknown kernel: %s\n", kernel);
         exit(1);
@@ -219,6 +221,9 @@ static void run_validate(const char* kernel,
     }
     else if (strcmp(kernel, "fa2_fp16") == 0){
         attention_flash2_fp16(d_Q, d_K, d_V, d_O, d_S, p);
+    }
+    else if (strcmp(kernel, "fa2_fp16v2") == 0){
+        attention_flash2_fp16v2(d_Q, d_K, d_V, d_O, d_S, p);
     } else {
         fprintf(stderr, "unknown kernel: %s\n", kernel);
         exit(1);

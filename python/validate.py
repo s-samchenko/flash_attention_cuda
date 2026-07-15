@@ -32,7 +32,7 @@ TEST_SHAPES = [
 ]
 
 # Kernels that run in FP16 internally
-FP16_KERNELS = {'fa2_tf32', 'fa2_fp16'}
+FP16_KERNELS = {'fa2_tf32', 'fa2_fp16', 'fa2_fp16v2'}
 
 # Multiplier on top of the FP16 noise floor.  ~2.5× keeps a small safety
 # margin over the ~2× the plan targets while still catching bugs that widen

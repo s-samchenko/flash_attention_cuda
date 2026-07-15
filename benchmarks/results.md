@@ -10,7 +10,7 @@
 
 - `naive`: `BH*(4*N*D + 4*N*N)*4` – attention matrix materialized in HBM; 4 passes over it
 - `fused_softmax`: `BH*(4*N*D + 2*N*N)*4` — attention matrix materialized; 2 passes
-- `fa1`, `fa2_tf32`, `fa2_fp16v1`: `BH*4*N*D*4` — attention matrix stays in SRAM (fa2_fp16v1 reads fp32 globals, converts to half in smem)
+- `fa1`, `fa2_tf32`, `fa2_fp16v1`, `fa2_fp16v2`: `BH*4*N*D*4` — attention matrix stays in SRAM (the fp16 kernels read fp32 globals and convert to half in smem, so the traffic formula is unchanged)
 
 ---
 
@@ -58,10 +58,43 @@
 | 2026-07-11 | fa2_fp16v1    | 1024 |      128 |   0.463 |  36.3 |  9.283 |    256.0 |     18.1x |
 | 2026-07-11 | fa2_fp16v1    | 2048 |      128 |   1.822 |  18.4 |  9.428 |    512.0 |     18.1x |
 | 2026-07-11 | fa2_fp16v1    | 4096 |      128 |   5.967 |  11.2 | 11.516 |   1024.0 |     22.5x |
+| 2026-07-15 | fa2_fp16v2    |  512 |       64 |   0.066 |  63.4 |  8.118 |    128.0 |     19.2x |
+| 2026-07-15 | fa2_fp16v2    | 1024 |       64 |   0.212 |  39.5 | 10.112 |    256.0 |     24.0x |
+| 2026-07-15 | fa2_fp16v2    | 2048 |       64 |   0.427 |  39.3 | 20.117 |    512.0 |     42.1x |
+| 2026-07-15 | fa2_fp16v2    | 4096 |       64 |   1.677 |  20.0 | 20.494 |   1024.0 |     40.0x |
+| 2026-07-15 | fa2_fp16v2    |  512 |      128 |   0.218 |  38.5 |  4.928 |    128.0 |      9.6x |
+| 2026-07-15 | fa2_fp16v2    | 1024 |      128 |   0.408 |  41.1 | 10.515 |    256.0 |     20.6x |
+| 2026-07-15 | fa2_fp16v2    | 2048 |      128 |   1.549 |  21.7 | 11.094 |    512.0 |     21.3x |
+| 2026-07-15 | fa2_fp16v2    | 4096 |      128 |   6.109 |  11.0 | 11.248 |   1024.0 |     22.0x |
 
 ---
 
 ## Roofline Analysis
+
+### fa2_fp16v2
+```
+Arithmetic intensity: 128–1024 FLOP/B (unchanged from fp16v1: same memory
+                      traffic, the speedup is pure on-chip efficiency)
+Roofline bound:       compute
+Achieved compute:     20.5 TFLOPS at seq=4096 hd=64: 29% of the 71 TFLOPS
+                      effective peak, 1.64x over fp16v1. hd=128 is unchanged
+                      at ~11.3 TFLOPS.
+Achieved bandwidth:   11–63 GB/s of 936 GB/s (<7% peak; low by design)
+Actual bound:         splits by head dim for the first time.
+                      hd=64: latency — the memory-conflict replays are gone
+                      (L1 pipe busy fell 76% -> 32%) and the remaining gap
+                      is too few threads in flight to keep the GPU issuing
+                      instructions (33% occupancy, IPC 0.88).
+                      hd=128: an occupancy wall — achieved 16.05% against a
+                      16.67% hard ceiling set by shared-memory footprint.
+                      The kernel already extracts everything its launch
+                      configuration allows; nothing inside the kernel can
+                      improve it without shrinking that footprint.
+Bottleneck:           hd=64: warp count per scheduler. hd=128: 33.8 KB of
+                      shared memory per block (+1 KB driver reserve) fits
+                      only 2 blocks per SM. The padding fixed a problem
+                      hd=128 never had.
+```
 
 ### fa2_fp16v1
 ```
@@ -147,6 +180,39 @@ Bottleneck:           full NxN attention matrix materialized in HBM (3 kernels,
 ---
 
 ## Nsight Compute Profiles
+
+### fa2_fp16v2 — seq=4096, Br=64, Bc=32
+```
+ Speed of Light                        hd=64      hd=128
+ ─────────────────────────────────────────────────────────
+   L1/TEX cache throughput             31.66%     14.69%    (v1: 76% / 65%)
+   Compute (SM) throughput             25.35%     12.05%
+   DRAM throughput                      2.03%      1.24%
+
+ Scheduler / warp state
+ ─────────────────────────────────────────────────────────
+   Executed IPC (active)               0.88       0.39
+
+ Occupancy / launch
+ ─────────────────────────────────────────────────────────
+   Achieved occupancy                  32.92%     16.05%
+   Theoretical occupancy               41.67%     16.67%
+   Block limit: registers              5          3
+   Block limit: shared memory          5          2         <- binding at hd=128
+   Blocks/SM                           5          2         (v1: 4 / 3)
+```
+
+**Bottleneck:** two different ones now. At hd=64 the shared-memory conflict
+replays that dominated v1 are gone — the L1 pipe's busy share dropped from 76%
+to 32%, and instruction throughput rose 2.5x — leaving plain latency: at 33%
+occupancy the schedulers still spend most cycles with no warp ready to issue.
+At hd=128 the profile shows a kernel pinned to its ceiling: 16.05% achieved
+against a 16.67% theoretical maximum, imposed by shared memory. The 33.8 KB
+per-block request plus a 1 KB per-block driver reserve on this architecture
+comes to 34.8 KB, and only 2 fit in the SM's 100 KB budget — which is why the
+naive 100/33.8 = 2.95 "should be 3 blocks" arithmetic is wrong. With 8 warps
+per SM there is not enough parallel work to hide memory latency, so the
+conflict fix that lifted hd=64 by 64% moved hd=128 by nothing.
 
 ### fa2_fp16v1 — seq=4096, Br=64, Bc=32
 ```
@@ -279,3 +345,23 @@ together, and K/V tiles are loaded from global and converted fp32 -> half
 synchronously inside the inner loop. The plan, in order: de-align the smem
 strides, then free enough registers/smem for a fifth block per SM, then store
 fp16 in global and double-buffer the K/V loads with cp.async.
+
+### fa2_fp16v2: the padding fix gives 1.64x speedup at hd=64
+Background for the fix: the GPU's on-chip shared memory is divided into 32
+banks, and accesses that land in the same bank are serialized. Because every
+row stride in v1 was a multiple of 128 bytes, threads kept hitting the same
+banks, each shared-memory load was replayed ~23 times. v2 pads each row of
+the score and K/V tiles by a few elements so consecutive rows start in
+different banks, and reorders the softmax's read/write phases so the padded,
+aliased score/probability buffer stays correct.
+
+At hd=64 this delivered 12.5 -> 20.5 TFLOPS at seq=4096 (1.64x) and the best
+result in the table so far: 42x over naive at seq=2048. 
+
+### fa2_fp16v2: the hd=128 occupancy wall
+At hd=128 this kernel requests 33.8 KB of  shared memory per block, and the hardware adds a fixed 1 KB per-block reserve,
+so only 2 blocks (8 warps) fit in an SM's 100 KB — not the 3 that the raw
+division suggests. The profiler confirms the kernel is already at that
+ceiling: 16.05% achieved occupancy against a 16.67% theoretical maximum.
+Nothing inside the kernel can improve this; the footprint itself has to
+shrink.

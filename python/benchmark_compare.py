@@ -150,6 +150,7 @@ CUDA_KERNELS = [
     'fa1',
     'fa2_tf32',
     'fa2_fp16',
+    'fa2_fp16v2'
 ]
 
 

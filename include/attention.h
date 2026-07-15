@@ -57,3 +57,12 @@ void attention_flash2_fp16(
         float* O,
         float* S_buf,
         const AttentionParams& p);
+
+// src/kernels/attention_flash2_fp16v2.cu
+void attention_flash2_fp16v2(
+        const float* Q,
+        const float* K,
+        const float* V,
+        float* O,
+        float* S_buf,
+        const AttentionParams& p);
