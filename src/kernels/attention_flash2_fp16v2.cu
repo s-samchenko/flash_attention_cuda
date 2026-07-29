@@ -24,9 +24,12 @@ namespace {
     __device__ __forceinline__ int frag_row(int lane, int i) {
         return (lane / 4) + ((i & 2) ? 8 : 0);
     }
+    __device__ __forceinline__ int frag_col(int lane, int i) {
+        return (lane & 3) * 2 + (i & 1) + ((i & 4) ? 8 : 0);
+    }
 }
 
-template<int D, int Br, int Bc, int MIN_BLOCKS>
+template<int D, int Br, int Bc, int MIN_BLOCKS, bool CAUSAL>
 __global__ __launch_bounds__((Br / WMMA_M) * WARP_SIZE, MIN_BLOCKS)
 void attention_flash_2_fp16v2_kernel(
         const float* __restrict Q,
@@ -99,8 +102,12 @@ void attention_flash_2_fp16v2_kernel(
     }
     __syncthreads();
 
+    const int row0 = blockIdx.x * Br;
     const int Tc = (N + Bc - 1) / Bc;
-    for (int j = 0; j < Tc; ++j) {
+
+    // Causal loop cap: any tile whose min column > this block's max row is fully masked.
+    const int Tc_eff = CAUSAL ? min(Tc, (row0 + Br + Bc - 1) / Bc) : Tc;
+    for (int j = 0; j < Tc_eff; ++j) {
         for (int i = tid; i < Bc * D; i += total_threads) {
             int r = i / D;
             int c = i - r * D;
@@ -126,11 +133,26 @@ void attention_flash_2_fp16v2_kernel(
             }
         }
 
+        // Global row range this warp owns: [q_row_warp, q_row_warp + WMMA_M).
+        const int q_row_warp = row0 + warp_id * WMMA_M;
+        const int tile_col0 = j * Bc;
+
 #pragma unroll
         for (int n = 0; n < FRAG_N; ++n) {
 #pragma unroll
             for (int i = 0; i < s_frag[n].num_elements; ++i) {
                 s_frag[n].x[i] *= scale;
+            }
+            if (CAUSAL) {
+                const int frag_col0 = tile_col0 + n * WMMA_N;
+                if (frag_col0 + WMMA_N - 1 > q_row_warp) {
+#pragma unroll
+                    for (int i = 0; i < s_frag[n].num_elements; ++i) {
+                        int r = q_row_warp + frag_row(lane_id, i);
+                        int c = frag_col0 + frag_col(lane_id, i);
+                        if (c > r) s_frag[n].x[i] = -INFINITY;
+                    }
+                }
             }
             wmma::store_matrix_sync(S_ij + warp_id * WMMA_M * S_STRIDE + n * WMMA_N,
                                     s_frag[n], S_STRIDE, wmma::mem_row_major);
@@ -220,7 +242,7 @@ void attention_flash_2_fp16v2_kernel(
     }
 }
 
-template<int D, int Br, int Bc, int MIN_BLOCKS>
+template<int D, int Br, int Bc, int MIN_BLOCKS, bool CAUSAL>
 static void launch(const float* Q, const float* K, const float* V,
                    float* O, int N, float scale, int B)
 {
@@ -247,7 +269,7 @@ static void launch(const float* Q, const float* K, const float* V,
             exit(1);
         }
         cudaError_t e = cudaFuncSetAttribute(
-                attention_flash_2_fp16v2_kernel<D, Br, Bc, MIN_BLOCKS>,
+                attention_flash_2_fp16v2_kernel<D, Br, Bc, MIN_BLOCKS, CAUSAL>,
                 cudaFuncAttributeMaxDynamicSharedMemorySize,
                 smem_bytes);
         if (e != cudaSuccess) {
@@ -259,7 +281,7 @@ static void launch(const float* Q, const float* K, const float* V,
     (void)configured;
 
     int Tr = (N + Br - 1) / Br;
-    attention_flash_2_fp16v2_kernel<D, Br, Bc, MIN_BLOCKS> <<<dim3(Tr, B), THREADS, smem_bytes>>>(Q, K, V, O, N, scale);
+    attention_flash_2_fp16v2_kernel<D, Br, Bc, MIN_BLOCKS, CAUSAL> <<<dim3(Tr, B), THREADS, smem_bytes>>>(Q, K, V, O, N, scale);
 
     cudaError_t le = cudaGetLastError();
     if (le != cudaSuccess) {
@@ -277,9 +299,11 @@ void attention_flash2_fp16v2(
         const AttentionParams& p)
 {
     int B = p.batch * p.n_heads;
-    if (p.head_dim == 64)
-        launch<64, 64, 32, /*MIN_BLOCKS=*/5>(Q, K, V, O, p.seq_len, p.scale, B);
-    else if (p.head_dim == 128)
-        launch<128, 64, 32, /*MIN_BLOCKS=*/3>(Q, K, V, O, p.seq_len, p.scale, B);
-    else exit(-1);
+    if (p.head_dim == 64) {
+        if (p.causal) launch<64, 64, 32, /*MIN_BLOCKS=*/5, true >(Q, K, V, O, p.seq_len, p.scale, B);
+        else launch<64, 64, 32, /*MIN_BLOCKS=*/5, false>(Q, K, V, O, p.seq_len, p.scale, B);
+    } else if (p.head_dim == 128) {
+        if (p.causal) launch<128, 64, 32, /*MIN_BLOCKS=*/3, true >(Q, K, V, O, p.seq_len, p.scale, B);
+        else launch<128, 64, 32, /*MIN_BLOCKS=*/3, false>(Q, K, V, O, p.seq_len, p.scale, B);
+    } else exit(-1);
 }

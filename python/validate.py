@@ -34,34 +34,32 @@ TEST_SHAPES = [
 # Kernels that run in FP16 internally
 FP16_KERNELS = {'fa2_tf32', 'fa2_fp16', 'fa2_fp16v2'}
 
-# Multiplier on top of the FP16 noise floor.  ~2.5× keeps a small safety
-# margin over the ~2× the plan targets while still catching bugs that widen
-# the gap substantially.
 NOISE_FLOOR_MULT = 2.5
 
 
-def _sdpa(Q, K, V, dtype):
+def _sdpa(Q, K, V, dtype, causal=False):
     """Q, K, V: np.float32 (BH, N, D). Returns np.float32 in `dtype` precision."""
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     Qt = torch.from_numpy(Q).to(device=device, dtype=dtype).unsqueeze(1)
     Kt = torch.from_numpy(K).to(device=device, dtype=dtype).unsqueeze(1)
     Vt = torch.from_numpy(V).to(device=device, dtype=dtype).unsqueeze(1)
     with torch.no_grad():
-        out = torch.nn.functional.scaled_dot_product_attention(Qt, Kt, Vt)
+        out = torch.nn.functional.scaled_dot_product_attention(Qt, Kt, Vt, is_causal=causal)
     return out.squeeze(1).float().cpu().numpy()
 
-def sdpa_reference(Q, K, V):
-    return _sdpa(Q, K, V, torch.float32)
+def sdpa_reference(Q, K, V, causal=False):
+    return _sdpa(Q, K, V, torch.float32, causal=causal)
 
 
-def run_kernel(kernel, seq_len, head_dim, batch, n_heads, Q, K, V, io_dir):
+def run_kernel(kernel, seq_len, head_dim, batch, n_heads, Q, K, V, io_dir, causal=False):
     Q.tofile(os.path.join(io_dir, 'Q.bin'))
     K.tofile(os.path.join(io_dir, 'K.bin'))
     V.tofile(os.path.join(io_dir, 'V.bin'))
 
     result = subprocess.run(
         [BINARY, 'validate', kernel,
-         str(seq_len), str(head_dim), str(batch), str(n_heads), io_dir],
+         str(seq_len), str(head_dim), str(batch), str(n_heads), io_dir,
+         '1' if causal else '0'],
         capture_output=True, text=True
     )
     if result.returncode != 0:
@@ -102,19 +100,19 @@ INPUT_CASES = [
 
 # ── testing ──────────────────────────────────────────────────────────────────
 
-def test_shape(kernel, seq_len, head_dim, batch, n_heads, verbose, save_failures):
+def test_shape(kernel, seq_len, head_dim, batch, n_heads, verbose, save_failures, causal=False):
     BH = batch * n_heads
     is_fp16 = kernel in FP16_KERNELS
     all_passed = True
 
     for case_name, gen in INPUT_CASES:
-        rng = np.random.default_rng(hash((seq_len, head_dim, case_name)) & 0xffffffff)
+        rng = np.random.default_rng(hash((seq_len, head_dim, case_name, causal)) & 0xffffffff)
         Q, K, V = gen(rng, BH, seq_len, head_dim)
 
-        expected_fp32 = sdpa_reference(Q, K, V)
+        expected_fp32 = sdpa_reference(Q, K, V, causal=causal)
 
         if is_fp16:
-            sdpa_fp16 = _sdpa(Q, K, V, torch.float16)
+            sdpa_fp16 = _sdpa(Q, K, V, torch.float16, causal=causal)
             noise = float(np.max(np.abs(sdpa_fp16 - expected_fp32)))
             tol = max(noise * NOISE_FLOOR_MULT, 5e-3)
             expected = sdpa_fp16
@@ -125,7 +123,7 @@ def test_shape(kernel, seq_len, head_dim, batch, n_heads, verbose, save_failures
 
         with tempfile.TemporaryDirectory() as tmpdir:
             got = run_kernel(kernel, seq_len, head_dim, batch, n_heads,
-                             Q, K, V, tmpdir)
+                             Q, K, V, tmpdir, causal=causal)
 
         max_err = float(np.max(np.abs(got - expected)))
         passed = max_err < tol
@@ -168,17 +166,18 @@ def main():
     parser.add_argument('--kernel', default=None)
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--save-failures', action='store_true')
+    parser.add_argument('--causal', action='store_true')
     args = parser.parse_args()
 
     if args.kernel is None:
         reference_self_check()
         return
 
-    print(f"validating kernel: {args.kernel}")
+    print(f"validating kernel: {args.kernel}  causal={args.causal}")
     passed = failed = 0
     for seq_len, head_dim, batch, n_heads in TEST_SHAPES:
         ok = test_shape(args.kernel, seq_len, head_dim, batch, n_heads,
-                        args.verbose, args.save_failures)
+                        args.verbose, args.save_failures, causal=args.causal)
         if ok: passed += 1
         else: failed += 1
 

@@ -80,7 +80,8 @@ typedef void (*AttnFn)(const float*, const float*, const float*,
 static void bench_kernel(const char* name, AttnFn fn,
                          long (*bytes_fn)(int, int, long, long),
                          bool needs_S,
-                         int only_seq_len = 0, int only_head_dim = 0)
+                         int only_seq_len = 0, int only_head_dim = 0,
+                         bool causal = false)
 {
     const int seq_lens[] = {512, 1024, 2048, 4096};
     const int head_dims[] = {64, 128};
@@ -111,7 +112,7 @@ static void bench_kernel(const char* name, AttnFn fn,
             p.n_heads = n_heads;
             p.seq_len = sl;
             p.head_dim = hd;
-            p.causal = false;
+            p.causal = causal;
             p.scale = 1.0f / sqrtf((float)hd);
 
             float ms = benchmark_kernel([&]() { fn(d_Q, d_K, d_V, d_O, d_S, p); });
@@ -132,24 +133,24 @@ static void bench_kernel(const char* name, AttnFn fn,
     }
 }
 
-static void run_bench(const char* kernel, int only_seq_len = 0, int only_head_dim = 0)
+static void run_bench(const char* kernel, int only_seq_len = 0, int only_head_dim = 0, bool causal = false)
 {
     cudaDeviceProp props;
     cudaGetDeviceProperties(&props, 0);
-    printf("GPU: %s\n", props.name);
+    printf("GPU: %s%s\n", props.name, causal ? "  (causal)" : "");
 
     if (strcmp(kernel, "naive") == 0)
-        bench_kernel("naive", attention_naive, naive_bytes, /*needs_S=*/true, only_seq_len, only_head_dim);
+        bench_kernel("naive", attention_naive, naive_bytes, /*needs_S=*/true, only_seq_len, only_head_dim, causal);
     else if (strcmp(kernel, "fused_softmax") == 0)
-        bench_kernel("fused_softmax", attention_fused_softmax, fused_softmax_bytes, /*needs_S=*/true, only_seq_len, only_head_dim);
+        bench_kernel("fused_softmax", attention_fused_softmax, fused_softmax_bytes, /*needs_S=*/true, only_seq_len, only_head_dim, causal);
     else if (strcmp(kernel, "fa1") == 0)
-        bench_kernel("fa1", attention_flash1, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
+        bench_kernel("fa1", attention_flash1, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim, causal);
     else if (strcmp(kernel, "fa2_tf32") == 0)
-        bench_kernel("fa2_tf32", attention_flash2_tf32, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
+        bench_kernel("fa2_tf32", attention_flash2_tf32, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim, causal);
     else if (strcmp(kernel, "fa2_fp16") == 0)
-        bench_kernel("fa2_fp16", attention_flash2_fp16, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
+        bench_kernel("fa2_fp16", attention_flash2_fp16, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim, causal);
     else if (strcmp(kernel, "fa2_fp16v2") == 0)
-        bench_kernel("fa2_fp16v2", attention_flash2_fp16v2, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim);
+        bench_kernel("fa2_fp16v2", attention_flash2_fp16v2, fa1_bytes, /*needs_S=*/false, only_seq_len, only_head_dim, causal);
     else {
         fprintf(stderr, "unknown kernel: %s\n", kernel);
         exit(1);
@@ -172,7 +173,7 @@ static void read_bin(const char* path, std::vector<float>& buf)
 
 static void run_validate(const char* kernel,
                          int seq_len, int head_dim, int batch, int n_heads,
-                         const char* io_dir)
+                         const char* io_dir, bool causal)
 {
     int BH = batch * n_heads;
     long tensor_elems = (long)BH * seq_len * head_dim;
@@ -204,7 +205,7 @@ static void run_validate(const char* kernel,
     p.n_heads = n_heads;
     p.seq_len = seq_len;
     p.head_dim = head_dim;
-    p.causal = false;
+    p.causal = causal;
     p.scale = 1.0f / sqrtf((float)head_dim);
 
     if (strcmp(kernel, "naive") == 0) {
@@ -249,24 +250,30 @@ int main(int argc, char* argv[])
 {
     if (argc > 1 && strcmp(argv[1], "bench") == 0) {
         if (argc < 3) {
-            fprintf(stderr, "usage: flash_attn bench <kernel> [seq_len] [head_dim]\n");
+            fprintf(stderr, "usage: flash_attn bench <kernel> [seq_len] [head_dim] [--causal]\n");
             return 1;
         }
-        int only_seq_len = argc > 3 ? atoi(argv[3]) : 0;
-        int only_head_dim = argc > 4 ? atoi(argv[4]) : 0;
-        run_bench(argv[2], only_seq_len, only_head_dim);
+        bool causal = false;
+        int positional[2] = {0, 0};
+        int p_count = 0;
+        for (int i = 3; i < argc; ++i) {
+            if (strcmp(argv[i], "--causal") == 0) causal = true;
+            else if (p_count < 2) positional[p_count++] = atoi(argv[i]);
+        }
+        run_bench(argv[2], positional[0], positional[1], causal);
     } else if (argc > 1 && strcmp(argv[1], "validate") == 0) {
         if (argc < 8) {
             fprintf(stderr,
                 "usage: flash_attn validate <kernel> <seq_len> <head_dim> "
-                "<batch> <n_heads> <io_dir>\n");
+                "<batch> <n_heads> <io_dir> [causal]\n");
             return 1;
         }
+        bool causal = (argc > 8) ? (atoi(argv[8]) != 0) : false;
         run_validate(argv[2], atoi(argv[3]), atoi(argv[4]),
-                     atoi(argv[5]), atoi(argv[6]), argv[7]);
+                     atoi(argv[5]), atoi(argv[6]), argv[7], causal);
     } else {
         fprintf(stderr, "usage: flash_attn bench <kernel>\n"
-                        "       flash_attn validate <kernel> <seq_len> <head_dim> <batch> <n_heads> <io_dir>\n");
+                        "       flash_attn validate <kernel> <seq_len> <head_dim> <batch> <n_heads> <io_dir> [causal]\n");
         return 1;
     }
     return 0;
