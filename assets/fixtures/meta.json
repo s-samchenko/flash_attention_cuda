@@ -1,0 +1,158 @@
+{
+  "layernorm_x": {
+    "shape": [
+      64,
+      768
+    ],
+    "dtype": "float32"
+  },
+  "layernorm_w": {
+    "shape": [
+      768
+    ],
+    "dtype": "float32"
+  },
+  "layernorm_b": {
+    "shape": [
+      768
+    ],
+    "dtype": "float32"
+  },
+  "layernorm_out": {
+    "shape": [
+      64,
+      768
+    ],
+    "dtype": "float32"
+  },
+  "gelu_new_in": {
+    "shape": [
+      4096
+    ],
+    "dtype": "float32"
+  },
+  "gelu_new_out": {
+    "shape": [
+      4096
+    ],
+    "dtype": "float32"
+  },
+  "qkv_split_in": {
+    "shape": [
+      7,
+      2304
+    ],
+    "dtype": "float32",
+    "n_real": 7,
+    "n_pad": 64
+  },
+  "qkv_split_Q": {
+    "shape": [
+      12,
+      64,
+      64
+    ],
+    "dtype": "float32"
+  },
+  "qkv_split_K": {
+    "shape": [
+      12,
+      64,
+      64
+    ],
+    "dtype": "float32"
+  },
+  "qkv_split_V": {
+    "shape": [
+      12,
+      64,
+      64
+    ],
+    "dtype": "float32"
+  },
+  "merge_heads_in": {
+    "shape": [
+      12,
+      64,
+      64
+    ],
+    "dtype": "float32",
+    "n_real": 7,
+    "n_pad": 64
+  },
+  "merge_heads_out": {
+    "shape": [
+      7,
+      768
+    ],
+    "dtype": "float32"
+  },
+  "bias_add_x": {
+    "shape": [
+      64,
+      3072
+    ],
+    "dtype": "float32"
+  },
+  "bias_add_bias": {
+    "shape": [
+      3072
+    ],
+    "dtype": "float32"
+  },
+  "bias_add_out": {
+    "shape": [
+      64,
+      3072
+    ],
+    "dtype": "float32"
+  },
+  "residual_add_x": {
+    "shape": [
+      64,
+      768
+    ],
+    "dtype": "float32"
+  },
+  "residual_add_y": {
+    "shape": [
+      64,
+      768
+    ],
+    "dtype": "float32"
+  },
+  "residual_add_out": {
+    "shape": [
+      64,
+      768
+    ],
+    "dtype": "float32"
+  },
+  "embedding_gather_ids": {
+    "shape": [
+      16
+    ],
+    "dtype": "int32"
+  },
+  "embedding_gather_wte": {
+    "shape": [
+      100,
+      32
+    ],
+    "dtype": "float32"
+  },
+  "embedding_gather_wpe": {
+    "shape": [
+      16,
+      32
+    ],
+    "dtype": "float32"
+  },
+  "embedding_gather_out": {
+    "shape": [
+      16,
+      32
+    ],
+    "dtype": "float32"
+  }
+}
