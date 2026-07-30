@@ -20,7 +20,7 @@ message(STATUS "Building for CUDA arch: ${CMAKE_CUDA_ARCHITECTURES}")
 
 # == flags ==
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CUDA_STANDARD 17)
 
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} \
@@ -57,6 +57,22 @@ add_executable(flash_attn
 target_include_directories(flash_attn PRIVATE include/)
 
 target_link_libraries(flash_attn
+    CUDA::cublas
+    CUDA::cudart
+)
+
+# ── gpt2 (host-side loader + CLI) ─────────────────────────────────────────
+
+add_executable(gpt2
+    src/gpt2/main.cpp
+    src/gpt2/loader.cpp
+    include/gpt2.h
+    include/cuda_utils.cuh
+)
+
+target_include_directories(gpt2 PRIVATE include/)
+
+target_link_libraries(gpt2
     CUDA::cublas
     CUDA::cudart
 )
