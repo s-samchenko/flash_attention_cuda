@@ -1,0 +1,146 @@
+{
+  "prompt": "The quick brown fox",
+  "ids": [
+    464,
+    2068,
+    7586,
+    21831
+  ],
+  "n_tokens": 4,
+  "note": "h{i}.bin holds hidden_states[i] under HF indexing: h00 = embeddings, h01..h11 = outputs of blocks 0..10, h11_raw = raw block-11 output (via hook), hf_final_ln = hidden_states[12] = post-ln_f",
+  "tensors": {
+    "h00": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h00.bin"
+    },
+    "h01": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h01.bin"
+    },
+    "h02": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h02.bin"
+    },
+    "h03": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h03.bin"
+    },
+    "h04": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h04.bin"
+    },
+    "h05": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h05.bin"
+    },
+    "h06": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h06.bin"
+    },
+    "h07": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h07.bin"
+    },
+    "h08": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h08.bin"
+    },
+    "h09": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h09.bin"
+    },
+    "h10": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h10.bin"
+    },
+    "h11": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h11.bin"
+    },
+    "h11_raw": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "h11_raw.bin"
+    },
+    "hf_final_ln": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "hf_final_ln.bin"
+    },
+    "logits": {
+      "shape": [
+        4,
+        50257
+      ],
+      "path": "logits.bin"
+    },
+    "block0_ln1": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "block0_ln1.bin"
+    },
+    "block0_c_attn": {
+      "shape": [
+        4,
+        2304
+      ],
+      "path": "block0_c_attn.bin"
+    },
+    "block0_attn": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "block0_attn.bin"
+    },
+    "block0_mlp": {
+      "shape": [
+        4,
+        768
+      ],
+      "path": "block0_mlp.bin"
+    }
+  }
+}
