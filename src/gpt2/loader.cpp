@@ -129,7 +129,7 @@ void gpt2_load(const char* bin_path, GPT2Weights& out, const char* manifest_out_
     size_t total_floats = 0;
     for (const auto& d : descs) total_floats += d.count();
     const size_t total_bytes = total_floats * sizeof(float);
-.
+
     std::fseek(f, 0, SEEK_END);
     const long file_size = std::ftell(f);
     std::fseek(f, sizeof(Header), SEEK_SET);
