@@ -21,7 +21,7 @@ message(STATUS "Building for CUDA arch: ${CMAKE_CUDA_ARCHITECTURES}")
 # == flags ==
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD 20)
 
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} \
     --expt-relaxed-constexpr \
