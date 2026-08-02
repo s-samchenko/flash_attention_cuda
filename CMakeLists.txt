@@ -21,7 +21,7 @@ message(STATUS "Building for CUDA arch: ${CMAKE_CUDA_ARCHITECTURES}")
 # == flags ==
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD 20)
 
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} \
     --expt-relaxed-constexpr \
@@ -66,7 +66,11 @@ target_link_libraries(flash_attn
 add_executable(gpt2
     src/gpt2/main.cpp
     src/gpt2/loader.cpp
+    src/gpt2/kernels_basic.cu
+    src/gpt2/kernel_tests.cu
     include/gpt2.h
+    include/gpt2_kernels.h
+    include/block_reduce.cuh
     include/cuda_utils.cuh
 )
 
