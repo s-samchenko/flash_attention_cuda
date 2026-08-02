@@ -1,5 +1,6 @@
 #include "gpt2_kernels.h"
 #include "cuda_utils.cuh"
+#include "block_reduce.cuh"
 
 namespace {
 
@@ -8,6 +9,32 @@ namespace {
 
     inline int grid_for(int n) {
         return (n + kBlockSize - 1) / kBlockSize;
+    }
+
+    __global__ void layernorm_kernel(const float* x, const float* w, const float* b, float* out, int C) {
+        const int row = blockIdx.x;
+        const float* xr = x + row * C;
+        float* orow = out + row * C;
+
+        // pass 1: mean = (1/C) * sum(x)
+        float s = 0.0f;
+        for (int i = threadIdx.x; i < C; i += blockDim.x) {
+            s += xr[i];
+        }
+        const float mean = block_reduce_sum(s) / C;
+
+        // pass 2: var = (1/C) * sum((x - mean)^2)
+        float vs = 0.0f;
+        for (int i = threadIdx.x; i < C; i += blockDim.x) {
+            const float diff = xr[i] - mean;
+            vs += diff * diff;
+        }
+        const float inv_std = rsqrtf(block_reduce_sum(vs) / C + 1e-5f);
+
+        // normalize
+        for (int i = threadIdx.x; i < C; i += blockDim.x) {
+            orow[i] = (xr[i] - mean) * inv_std * w[i] + b[i];
+        }
     }
 
     __global__ void residual_add_kernel(float* x, const float* y, int n) {
@@ -84,6 +111,11 @@ namespace gpt2 {
 
     void gelu_new(float* x, int n) {
         gelu_new_kernel<<<grid_for(n), kBlockSize>>>(x, n);
+        cuda_check(cudaGetLastError());
+    }
+
+    void layernorm(const float* x, const float* w, const float* b, float* out, int N, int C) {
+        layernorm_kernel<<<N, kBlockSize>>>(x, w, b, out, C);
         cuda_check(cudaGetLastError());
     }
 

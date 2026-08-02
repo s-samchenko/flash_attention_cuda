@@ -70,6 +70,7 @@ add_executable(gpt2
     src/gpt2/kernel_tests.cu
     include/gpt2.h
     include/gpt2_kernels.h
+    include/block_reduce.cuh
     include/cuda_utils.cuh
 )
 

@@ -143,6 +143,32 @@ namespace {
         return report("gelu_new", max_abs_diff(out, ref), 1e-5f);
     }
 
+    bool test_layernorm(const std::string& dir) {
+        auto x = load_floats(dir + "/layernorm_x.bin");
+        auto w = load_floats(dir + "/layernorm_w.bin");
+        auto b = load_floats(dir + "/layernorm_b.bin");
+        auto ref = load_floats(dir + "/layernorm_out.bin");
+        const int C = int(w.size());
+        const int N = int(x.size() / w.size());
+
+        float* dx = to_device(x);
+        float* dw = to_device(w);
+        float* db = to_device(b);
+        float* d_out = nullptr;
+        cuda_check(cudaMalloc(&d_out, x.size() * sizeof(float)));
+
+        gpt2::layernorm(dx, dw, db, d_out, N, C);
+        cuda_check(cudaDeviceSynchronize());
+        auto out = to_host(d_out, x.size());
+
+        cudaFree(dx);
+        cudaFree(dw);
+        cudaFree(db);
+        cudaFree(d_out);
+
+        return report("layernorm", max_abs_diff(out, ref), 1e-5f);
+    }
+
     bool test_embedding_gather(const std::string& dir) {
         auto ids = load_ints(dir + "/embedding_gather_ids.bin");
         auto wte = load_floats(dir + "/embedding_gather_wte.bin");
@@ -235,6 +261,7 @@ int gpt2_test_kernels(const char* fixtures_dir) {
     failed += !test_residual_add(dir);
     failed += !test_bias_add(dir);
     failed += !test_gelu_new(dir);
+    failed += !test_layernorm(dir);
     failed += !test_embedding_gather(dir);
     failed += !test_qkv_split(dir);
     failed += !test_merge_heads(dir);

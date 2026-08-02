@@ -5,6 +5,9 @@ namespace gpt2 {
     // in-place elementwise gelu_new using tanh approximation
     void gelu_new(float* x, int n);
 
+    // per-row (C-wide) layernorm: out = (x - mean) * rsqrt(var + eps) * w + b
+    void layernorm(const float* x, const float* w, const float* b, float* out, int N, int C = 768);
+
     // x[i] += bias[i % cols], bias broadcast down the rows
     void bias_add(float* x, const float* bias, int rows, int cols);
 
