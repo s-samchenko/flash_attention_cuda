@@ -1,5 +1,5 @@
-#include "gpt2.h"
-#include "gpt2_kernels.h"
+#include "gpt2.hpp"
+#include "gpt2_kernels.hpp"
 
 #include <cstdio>
 #include <cstdlib>
