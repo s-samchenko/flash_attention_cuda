@@ -16,10 +16,8 @@ namespace gpt2 {
     void activations_init(Activations& a);
     void activations_free(Activations& a);
 
-    // residual stream
-    void block_forward(const GPT2Weights& w, Activations& a, int layer, int n_real, int n_pad);
+    void block_forward(const GPT2Weights& w, Activations& a, int layer, int n_real, int n_pad, const char* dump_dir = nullptr);
 
-    // Embedding + all blocks
-    void gpt2_forward(const GPT2Weights& w, Activations& a, const int* ids_host, int n_real);
+    void gpt2_forward(const GPT2Weights& w, Activations& a, const int* ids_host, int n_real, const char* dump_dir = nullptr);
 
 }

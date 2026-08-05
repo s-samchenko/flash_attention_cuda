@@ -3,11 +3,16 @@
 #include "gpt2_model.hpp"
 #include "cuda_utils.cuh"
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <vector>
+
+// Token ids for "The quick brown fox" under the gpt2 BPE encoding (assets/ref/meta.json)
+constexpr std::array<int, 4> kRefPromptIds = {464, 2068, 7586, 21831};
 
 static void usage() {
     std::fprintf(stderr,
@@ -17,20 +22,21 @@ static void usage() {
         "  gpt2 --test-kernels [fixtures_dir]\n"
         "       default: fixtures_dir=assets/fixtures\n"
         "  gpt2 --forward [bin]\n"
-        "       runs embedding + 12 blocks on the ref prompt and prints residual-stream stats\n");
+        "       runs embedding + 12 blocks on the ref prompt and prints residual-stream stats\n"
+        "  gpt2 --dump-activations [bin] [out_dir]\n"
+        "       runs the ref prompt and dumps x_emb, x_block{NN}, and block-0 internals\n"
+        "       default: out_dir=assets/dump\n");
 }
 
 static int cmd_forward(const char* bin) {
-    // "The quick brown fox" under the gpt2 encoding
-    const std::vector<int> ids = {464, 2068, 7586, 21831};
-    const int n_real = int(ids.size());
+    const int n_real = int(kRefPromptIds.size());
 
     GPT2Weights w{};
     gpt2_load(bin, w);
 
     gpt2::Activations a{};
     gpt2::activations_init(a);
-    gpt2::gpt2_forward(w, a, ids.data(), n_real);
+    gpt2::gpt2_forward(w, a, kRefPromptIds.data(), n_real);
     cuda_check(cudaDeviceSynchronize());
 
     std::vector<float> x(size_t(n_real) * 768);
@@ -54,6 +60,25 @@ static int cmd_forward(const char* bin) {
     gpt2::activations_free(a);
     gpt2_free(w);
     return nans == 0 ? 0 : 1;
+}
+
+static int cmd_dump(const char* bin, const char* out_dir) {
+    const int n_real = int(kRefPromptIds.size());
+    std::filesystem::create_directories(out_dir);
+
+    GPT2Weights w{};
+    gpt2_load(bin, w);
+
+    gpt2::Activations a{};
+    gpt2::activations_init(a);
+    gpt2::gpt2_forward(w, a, kRefPromptIds.data(), n_real, out_dir);
+    cuda_check(cudaDeviceSynchronize());
+
+    std::printf("dumped activations for n_real=%d to %s/\n", n_real, out_dir);
+
+    gpt2::activations_free(a);
+    gpt2_free(w);
+    return 0;
 }
 
 int main(int argc, char** argv) {
@@ -80,6 +105,12 @@ int main(int argc, char** argv) {
     if (std::strcmp(argv[1], "--forward") == 0) {
         const char* bin = (argc > 2) ? argv[2] : "assets/gpt2_weights.bin";
         return cmd_forward(bin);
+    }
+
+    if (std::strcmp(argv[1], "--dump-activations") == 0) {
+        const char* bin = (argc > 2) ? argv[2] : "assets/gpt2_weights.bin";
+        const char* dir = (argc > 3) ? argv[3] : "assets/dump";
+        return cmd_dump(bin, dir);
     }
 
     usage();

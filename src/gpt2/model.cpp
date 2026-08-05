@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
+#include <vector>
 
 namespace {
 
@@ -19,6 +20,26 @@ namespace {
 
     int pad_to_64(int n) {
         return ((n + 63) / 64) * 64;
+    }
+
+    void dump(const char* dir, const char* name, const float* dptr, size_t n) {
+        if (!dir) {
+            return;
+        }
+
+        std::vector<float> host(n);
+        cuda_check(cudaMemcpy(host.data(), dptr, n * sizeof(float), cudaMemcpyDeviceToHost));
+        char path[512];
+        std::snprintf(path, sizeof(path), "%s/%s.bin", dir, name);
+        FILE* f = std::fopen(path, "wb");
+
+        if (!f) {
+            std::fprintf(stderr, "cannot open dump %s\n", path);
+            std::exit(1);
+        }
+
+        std::fwrite(host.data(), sizeof(float), n, f);
+        std::fclose(f);
     }
 
     void run_attention(gpt2::Activations& a, int n_real, int n_pad) {
@@ -86,19 +107,24 @@ namespace gpt2 {
         a.d_ids = nullptr;
     }
 
-    void block_forward(const GPT2Weights& w, Activations& a, int layer, int n_real, int n_pad) {
+    void block_forward(const GPT2Weights& w, Activations& a, int layer, int n_real, int n_pad, const char* dump_dir) {
         const BlockWeights& b = w.h[layer];
+        const char* d0 = (layer == 0) ? dump_dir : nullptr;
 
         layernorm(a.x, b.ln1_w, b.ln1_b, a.ln_out, n_real, D);
         gemm_rm(a.cublas, a.ln_out, b.attn_qkv_w, a.qkv, n_real, D, QKV);
         bias_add(a.qkv, b.attn_qkv_b, n_real, QKV);
+        dump(d0, "block00_ln1", a.ln_out, size_t(n_real) * D);
+        dump(d0, "block00_qkv", a.qkv, size_t(n_real) * QKV);
+
         qkv_split(a.qkv, a.Q, a.K, a.V, n_real, n_pad, H, DH);
-
         run_attention(a, n_real, n_pad);
-
         merge_heads(a.O_heads, a.attn_merged, n_real, n_pad, H, DH);
+        dump(d0, "block00_attn_merged", a.attn_merged, size_t(n_real) * D);
+
         gemm_rm(a.cublas, a.attn_merged, b.attn_proj_w, a.proj_out, n_real, D, D);
         bias_add(a.proj_out, b.attn_proj_b, n_real, D);
+        dump(d0, "block00_attn_proj", a.proj_out, size_t(n_real) * D);
         residual_add(a.x, a.proj_out, n_real * D);
 
         layernorm(a.x, b.ln2_w, b.ln2_b, a.ln_out, n_real, D);
@@ -107,16 +133,24 @@ namespace gpt2 {
         gelu_new(a.mlp_h, n_real * FF);
         gemm_rm(a.cublas, a.mlp_h, b.mlp_proj_w, a.proj_out, n_real, FF, D);
         bias_add(a.proj_out, b.mlp_proj_b, n_real, D);
+        dump(d0, "block00_mlp_proj", a.proj_out, size_t(n_real) * D);
         residual_add(a.x, a.proj_out, n_real * D);
+
+        if (dump_dir) {
+            char name[32];
+            std::snprintf(name, sizeof(name), "x_block%02d", layer);
+            dump(dump_dir, name, a.x, size_t(n_real) * D);
+        }
     }
 
-    void gpt2_forward(const GPT2Weights& w, Activations& a, const int* ids_host, int n_real) {
+    void gpt2_forward(const GPT2Weights& w, Activations& a, const int* ids_host, int n_real, const char* dump_dir) {
         cuda_check(cudaMemcpy(a.d_ids, ids_host, size_t(n_real) * sizeof(int), cudaMemcpyHostToDevice));
         embedding_gather(a.d_ids, w.wte, w.wpe, a.x, n_real, D);
+        dump(dump_dir, "x_emb", a.x, size_t(n_real) * D);
 
         const int n_pad = pad_to_64(n_real);
         for (int i = 0; i < w.config.n_layer; ++i) {
-            block_forward(w, a, i, n_real, n_pad);
+            block_forward(w, a, i, n_real, n_pad, dump_dir);
         }
     }
 
