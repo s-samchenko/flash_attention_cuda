@@ -141,6 +141,26 @@ def cmd_tokens(out_dir: str):
 
 REF_PROMPT = "The quick brown fox"
 
+PARA_PROMPT = (
+    "Machine translation systems have improved dramatically over the past decade, "
+    "driven by larger models, richer training data, and architectural advances such "
+    "as attention. They still stumble on rare idioms and the long-range context that "
+    "human translators resolve almost without thinking."
+)
+FILLER_TEXT = (
+    "The history of computing is a history of abstraction, each layer resting on the "
+    "one beneath it so a programmer need not reason about electrons to write a loop. "
+)
+
+
+def _ids_of_length(enc, n: int) -> list:
+    """Deterministic list of exactly n token ids, by repeating FILLER_TEXT."""
+    base = enc.encode(FILLER_TEXT)
+    ids = []
+    while len(ids) < n:
+        ids += base
+    return ids[:n]
+
 
 def _dump_tensor(path: str, t: torch.Tensor, meta: dict, key: str):
     """Save a torch tensor to raw fp32 and record its shape in `meta`."""
@@ -156,15 +176,12 @@ def _hook_output(store: dict, key: str):
     return _hook
 
 
-def cmd_ref(out_dir: str, dump_block0: bool = False):
-    import tiktoken
-    ref_dir = os.path.join(out_dir, 'ref')
-    os.makedirs(ref_dir, exist_ok=True)
+def _dump_one(model, ids, ref_dir: str, text=None, dump_block0: bool = False) -> int:
+    """Run the model on `ids` and dump the reference activation ladder into ref_dir.
 
-    print("loading gpt2 for reference dump...")
-    model = GPT2LMHeadModel.from_pretrained('gpt2').eval()
-    enc = tiktoken.get_encoding('gpt2')
-    ids = enc.encode(REF_PROMPT)
+    Returns the argmax over the last position's logits.
+    """
+    os.makedirs(ref_dir, exist_ok=True)
     x = torch.tensor([ids])
 
     # Hook block 11 directly to capture its unnormalized output.
@@ -193,7 +210,7 @@ def cmd_ref(out_dir: str, dump_block0: bool = False):
     assert len(hs) == 13, f"unexpected hidden_states length: {len(hs)}"
 
     meta = {
-        'prompt': REF_PROMPT,
+        'prompt': text,
         'ids': ids,
         'n_tokens': len(ids),
         'note': ('h{i}.bin holds hidden_states[i] under HF indexing: '
@@ -221,10 +238,36 @@ def cmd_ref(out_dir: str, dump_block0: bool = False):
     with open(os.path.join(ref_dir, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=2)
 
-    print(f"wrote {ref_dir}/ ({len(meta['tensors'])} tensors)")
-    print(f"prompt='{REF_PROMPT}' ids={ids}")
-    print(f"logits shape={list(out.logits.shape)} "
-          f"argmax@last={int(out.logits[0, -1].argmax())}")
+    return int(out.logits[0, -1].argmax())
+
+
+def cmd_ref(out_dir: str, dump_block0: bool = False):
+    import tiktoken
+    ref_root = os.path.join(out_dir, 'ref')
+    os.makedirs(ref_root, exist_ok=True)
+
+    print("loading gpt2 for reference dump...")
+    model = GPT2LMHeadModel.from_pretrained('gpt2').eval()
+    enc = tiktoken.get_encoding('gpt2')
+
+    prompts = [
+        ('fox', enc.encode(REF_PROMPT), REF_PROMPT),
+        ('para', enc.encode(PARA_PROMPT), PARA_PROMPT),
+        ('ctx64', _ids_of_length(enc, 64), None),
+        ('ctx1000', _ids_of_length(enc, 1000), None),
+    ]
+
+    index = []
+    for name, ids, text in prompts:
+        argmax_last = _dump_one(model, ids, os.path.join(ref_root, name),
+                                text=text, dump_block0=(dump_block0 and name == 'fox'))
+        index.append({'name': name, 'n_tokens': len(ids), 'argmax_last': argmax_last})
+        print(f"  {name:8s} n_tokens={len(ids):4d}  argmax@last={argmax_last}")
+
+    with open(os.path.join(ref_root, 'index.json'), 'w') as f:
+        json.dump({'prompts': index}, f, indent=2)
+
+    print(f"wrote {ref_root}/ for {len(prompts)} prompts (index.json + per-prompt meta.json)")
 
 
 def _write_fixture(fx_dir: str, name: str, arr: np.ndarray, meta: dict):

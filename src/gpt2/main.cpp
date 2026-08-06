@@ -24,7 +24,8 @@ static void usage() {
         "  gpt2 --forward [bin]\n"
         "       runs embedding + 12 blocks on the ref prompt and prints residual-stream stats\n"
         "  gpt2 --dump-activations [bin] [out_dir]\n"
-        "       runs the ref prompt and dumps x_emb, x_block{NN}, and block-0 internals\n"
+        "       runs the ref prompt and dumps x_emb, x_block{NN}, block-0 internals,\n"
+        "       x_lnf, and logits\n"
         "       default: out_dir=assets/dump\n");
 }
 
@@ -35,7 +36,7 @@ static int cmd_forward(const char* bin) {
     gpt2_load(bin, w);
 
     gpt2::Activations a{};
-    gpt2::activations_init(a);
+    gpt2::activations_init(a, w.config, n_real);
     gpt2::gpt2_forward(w, a, kRefPromptIds.data(), n_real);
     cuda_check(cudaDeviceSynchronize());
 
@@ -70,8 +71,9 @@ static int cmd_dump(const char* bin, const char* out_dir) {
     gpt2_load(bin, w);
 
     gpt2::Activations a{};
-    gpt2::activations_init(a);
+    gpt2::activations_init(a, w.config, n_real);
     gpt2::gpt2_forward(w, a, kRefPromptIds.data(), n_real, out_dir);
+    gpt2::lm_head(w, a, n_real, /*all_positions=*/true, out_dir);
     cuda_check(cudaDeviceSynchronize());
 
     std::printf("dumped activations for n_real=%d to %s/\n", n_real, out_dir);

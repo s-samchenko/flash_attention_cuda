@@ -58,7 +58,7 @@ namespace {
 
 namespace gpt2 {
 
-    void activations_init(Activations& a) {
+    void activations_init(Activations& a, const GPT2Config& config, int logit_rows) {
         const size_t ND = size_t(N_MAX) * D;
         const size_t sizes[] = {
             ND,                   // x
@@ -93,6 +93,8 @@ namespace gpt2 {
         cuda_check(cudaMalloc(&a.d_ids, size_t(N_MAX) * sizeof(int)));
         cuda_check(cudaMemset(a.d_ids, 0, size_t(N_MAX) * sizeof(int)));
 
+        cuda_check(cudaMalloc(&a.logits, size_t(logit_rows) * config.vocab * sizeof(float)));
+
         if (cublasCreate(&a.cublas) != CUBLAS_STATUS_SUCCESS) {
             std::fprintf(stderr, "cublasCreate failed\n");
             std::exit(1);
@@ -102,9 +104,11 @@ namespace gpt2 {
     void activations_free(Activations& a) {
         cudaFree(a.arena);
         cudaFree(a.d_ids);
+        cudaFree(a.logits);
         cublasDestroy(a.cublas);
         a.arena = nullptr;
         a.d_ids = nullptr;
+        a.logits = nullptr;
     }
 
     void block_forward(const GPT2Weights& w, Activations& a, int layer, int n_real, int n_pad, const char* dump_dir) {
@@ -152,6 +156,19 @@ namespace gpt2 {
         for (int i = 0; i < w.config.n_layer; ++i) {
             block_forward(w, a, i, n_real, n_pad, dump_dir);
         }
+    }
+
+    void lm_head(const GPT2Weights& w, Activations& a, int n_real, bool all_positions, const char* dump_dir) {
+        const int vocab = w.config.vocab;
+
+        layernorm(a.x, w.lnf_w, w.lnf_b, a.ln_out, n_real, D);
+        dump(dump_dir, "x_lnf", a.ln_out, size_t(n_real) * D);
+
+        const float* stream = all_positions ? a.ln_out : a.ln_out + size_t(n_real - 1) * D;
+        const int rows = all_positions ? n_real : 1;
+        gemm_rm_bt(a.cublas, stream, w.wte, a.logits, rows, D, vocab);
+
+        dump(dump_dir, "logits", a.logits, size_t(rows) * vocab);
     }
 
 }
