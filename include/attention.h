@@ -5,11 +5,11 @@
 // Tensor shape convention: (batch*n_heads, seq_len, head_dim), row-major.
 
 struct AttentionParams {
-    int   batch;
-    int   n_heads;
-    int   seq_len;
-    int   head_dim;
-    bool  causal;
+    int batch;
+    int n_heads;
+    int seq_len;
+    int head_dim;
+    bool causal;
     float scale;   // 1 / sqrt(head_dim)
 };
 

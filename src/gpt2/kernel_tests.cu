@@ -1,6 +1,8 @@
-#include "gpt2_kernels.h"
+#include "gpt2_kernels.hpp"
+#include "gpt2_gemm.hpp"
 #include "cuda_utils.cuh"
 
+#include <cublas_v2.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -253,6 +255,50 @@ namespace {
         return report("merge_heads", max_abs_diff(out, ref), 1e-5f);
     }
 
+    bool test_gemm_rm(const std::string& dir, cublasHandle_t handle) {
+        auto A = load_floats(dir + "/gemm_rm_A.bin");
+        auto B = load_floats(dir + "/gemm_rm_B.bin");
+        auto ref = load_floats(dir + "/gemm_rm_C.bin");
+        const int m = 5, k = 7, n = 3;
+
+        float* dA = to_device(A);
+        float* dB = to_device(B);
+        float* dC = nullptr;
+        cuda_check(cudaMalloc(&dC, size_t(m) * n * sizeof(float)));
+
+        gpt2::gemm_rm(handle, dA, dB, dC, m, k, n);
+        cuda_check(cudaDeviceSynchronize());
+        auto out = to_host(dC, size_t(m) * n);
+
+        cudaFree(dA);
+        cudaFree(dB);
+        cudaFree(dC);
+
+        return report("gemm_rm", max_abs_diff(out, ref), 1e-4f);
+    }
+
+    bool test_gemm_rm_bt(const std::string& dir, cublasHandle_t handle) {
+        auto A = load_floats(dir + "/gemm_bt_A.bin");
+        auto B = load_floats(dir + "/gemm_bt_B.bin");
+        auto ref = load_floats(dir + "/gemm_bt_C.bin");
+        const int m = 5, k = 7, n = 3;
+
+        float* dA = to_device(A);
+        float* dB = to_device(B);
+        float* dC = nullptr;
+        cuda_check(cudaMalloc(&dC, size_t(m) * n * sizeof(float)));
+
+        gpt2::gemm_rm_bt(handle, dA, dB, dC, m, k, n);
+        cuda_check(cudaDeviceSynchronize());
+        auto out = to_host(dC, size_t(m) * n);
+
+        cudaFree(dA);
+        cudaFree(dB);
+        cudaFree(dC);
+
+        return report("gemm_rm_bt", max_abs_diff(out, ref), 1e-4f);
+    }
+
 }
 
 int gpt2_test_kernels(const char* fixtures_dir) {
@@ -265,6 +311,16 @@ int gpt2_test_kernels(const char* fixtures_dir) {
     failed += !test_embedding_gather(dir);
     failed += !test_qkv_split(dir);
     failed += !test_merge_heads(dir);
+
+    cublasHandle_t handle = nullptr;
+    if (cublasCreate(&handle) != CUBLAS_STATUS_SUCCESS) {
+        std::fprintf(stderr, "cublasCreate failed\n");
+        std::exit(1);
+    }
+    failed += !test_gemm_rm(dir, handle);
+    failed += !test_gemm_rm_bt(dir, handle);
+    cublasDestroy(handle);
+
     std::printf("\n%d ops failed\n", failed);
     return failed;
 }

@@ -1,4 +1,4 @@
-#include "gpt2_kernels.h"
+#include "gpt2_kernels.hpp"
 #include "cuda_utils.cuh"
 #include "block_reduce.cuh"
 

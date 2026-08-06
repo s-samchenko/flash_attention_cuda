@@ -1,4 +1,4 @@
-#include "gpt2.h"
+#include "gpt2.hpp"
 #include "cuda_utils.cuh"
 
 #include <cstdint>

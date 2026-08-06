@@ -66,10 +66,15 @@ target_link_libraries(flash_attn
 add_executable(gpt2
     src/gpt2/main.cpp
     src/gpt2/loader.cpp
+    src/gpt2/gemm.cpp
+    src/gpt2/model.cpp
     src/gpt2/kernels_basic.cu
     src/gpt2/kernel_tests.cu
-    include/gpt2.h
-    include/gpt2_kernels.h
+    src/kernels/attention_flash2_fp16v2.cu
+    include/gpt2.hpp
+    include/gpt2_kernels.hpp
+    include/gpt2_gemm.hpp
+    include/gpt2_model.hpp
     include/block_reduce.cuh
     include/cuda_utils.cuh
 )

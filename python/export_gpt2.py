@@ -304,6 +304,21 @@ def cmd_fixtures(out_dir: str):
     _write_fixture(fx_dir, 'residual_add_y', y, meta)
     _write_fixture(fx_dir, 'residual_add_out', x + y, meta)
 
+    # gemm_rm: C[m,n] = A[m,k] * B[k,n]
+    M, K, N = 5, 7, 3
+    A = rng.standard_normal((M, K)).astype(np.float32)
+    B = rng.standard_normal((K, N)).astype(np.float32)
+    _write_fixture(fx_dir, 'gemm_rm_A', A, meta)
+    _write_fixture(fx_dir, 'gemm_rm_B', B, meta)
+    _write_fixture(fx_dir, 'gemm_rm_C', A @ B, meta)
+
+    # gemm_rm_bt: C[m,n] = A[m,k] * B[n,k]^T
+    Abt = rng.standard_normal((M, K)).astype(np.float32)
+    Bbt = rng.standard_normal((N, K)).astype(np.float32)
+    _write_fixture(fx_dir, 'gemm_bt_A', Abt, meta)
+    _write_fixture(fx_dir, 'gemm_bt_B', Bbt, meta)
+    _write_fixture(fx_dir, 'gemm_bt_C', Abt @ Bbt.T, meta)
+
     # embedding_gather: small toy vocab so the fixture is tiny.
     V_small, N_ctx, D_emb = 100, 16, 32
     ids = rng.integers(0, V_small, size=N_ctx).astype(np.int32)
@@ -318,7 +333,7 @@ def cmd_fixtures(out_dir: str):
     with open(os.path.join(fx_dir, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=2)
 
-    print(f"wrote {fx_dir}/ ({len(meta)} tensors across 7 ops)")
+    print(f"wrote {fx_dir}/ ({len(meta)} tensors across 7 kernels + 2 gemm wrappers)")
 
 
 COMMANDS = {
