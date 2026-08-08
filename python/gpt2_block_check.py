@@ -55,7 +55,7 @@ def max_abs(a, b):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ref', default='assets/ref/fox')
-    ap.add_argument('--dump', default='assets/dump')
+    ap.add_argument('--dump', default='assets/dump/fox')
     args = ap.parse_args()
 
     meta = json.load(open(os.path.join(args.ref, 'meta.json')))
