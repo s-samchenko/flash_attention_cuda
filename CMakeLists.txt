@@ -68,6 +68,7 @@ add_executable(gpt2
     src/gpt2/loader.cpp
     src/gpt2/gemm.cpp
     src/gpt2/model.cpp
+    src/gpt2/generate.cpp
     src/gpt2/kernels_basic.cu
     src/gpt2/kernel_tests.cu
     src/kernels/attention_flash2_fp16v2.cu
@@ -75,6 +76,7 @@ add_executable(gpt2
     include/gpt2_kernels.hpp
     include/gpt2_gemm.hpp
     include/gpt2_model.hpp
+    include/gpt2_generate.hpp
     include/block_reduce.cuh
     include/cuda_utils.cuh
 )
