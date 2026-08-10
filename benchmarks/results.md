@@ -365,3 +365,38 @@ division suggests. The profiler confirms the kernel is already at that
 ceiling: 16.05% achieved occupancy against a 16.67% theoretical maximum.
 Nothing inside the kernel can improve this; the footprint itself has to
 shrink.
+
+---
+
+## GPT-2 Inference (end-to-end)
+
+**Network:** FP32 throughout; attention runs the `fa2_fp16v2` kernel (Q/K/V cast
+fp32->half at the kernel boundary each layer, O returned as fp32).
+**Timing:** generation loop only — weights resident, tokenization excluded,
+`cudaDeviceSynchronize` at both ends.
+
+### Correctness — logits vs. HF `gpt2` (FP32)
+
+| Date       | Model | tokens | max abs diff |    argmax |
+|------------|-------|-------:|-------------:|----------:|
+| 2026-08-09 | 124M  |      4 |      1.52e-2 |       4/4 |
+| 2026-08-09 | 124M  |     49 |      3.08e-2 |     49/49 |
+| 2026-08-09 | 124M  |     64 |      1.56e-1 |     64/64 |
+| 2026-08-09 | 124M  |   1000 |      1.13e+0 | 1000/1000 |
+
+### Generation throughput — re-prefill
+
+| Date       | Model | prompt_len | new_tokens | context range | ms/token | tokens/s |
+|------------|-------|-----------:|-----------:|--------------:|---------:|---------:|
+| 2026-08-09 | 124M  |         16 |         64 |        16..80 |     3.46 |    288.9 |
+| 2026-08-09 | 124M  |        256 |         64 |      256..320 |     6.06 |    165.1 |
+| 2026-08-09 | 124M  |        768 |         64 |      768..832 |    12.58 |     79.5 |
+
+Generation uses re-prefill: with no KV cache, every step recomputes a full
+forward pass over the whole context so far. Per-token cost therefore grows with
+context, so generating N tokens is O(N²) overall. This shows up directly in
+throughput, which falls from 289 to 79 tokens/s across the three lengths.
+
+Prompt length spans 48x (16 to 768) but throughput only 3.6x. Short contexts are
+overhead-bound (~195 kernel launches per forward, plus cuBLAS latency on tiny
+GEMMs); by ctx≈768 the projection GEMMs dominate and the loop is compute-bound.

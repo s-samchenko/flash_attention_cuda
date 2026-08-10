@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <filesystem>
 #include <random>
 #include <string_view>
@@ -62,7 +63,8 @@ static void usage() {
         "       re-prefill generation, streams token bytes to stdout.\n"
         "       temp<=0 is greedy. defaults: temp=0.8 top-k=40 delay=30ms\n"
         "       no --seed means a fresh random seed each run; pass --seed to pin it\n"
-        "       --maxspeed disables the per-token pause (use it for benchmarking)\n"
+        "       --maxspeed disables the per-token pause.\n"
+        "       --time prints tokens/s of the generation loop to stderr (implies --maxspeed)\n"
         "  gpt2 --selftest\n"
         "       greedy generation on the fox prompt; checks reproducibility\n");
 }
@@ -133,6 +135,7 @@ static int cmd_generate(int argc, char** argv) {
     cfg.delay_ms = 30;
     bool maxspeed = false;
     bool seed_set = false;
+    bool time_it = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--tokens") == 0 && i + 1 < argc) {
@@ -150,12 +153,14 @@ static int cmd_generate(int argc, char** argv) {
             cfg.delay_ms = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--maxspeed") == 0) {
             maxspeed = true;
+        } else if (std::strcmp(argv[i], "--time") == 0) {
+            time_it = true;
         } else if (std::strcmp(argv[i], "--weights") == 0 && i + 1 < argc) {
             bin = argv[++i];
         }
     }
-    if (maxspeed) {
-        cfg.delay_ms = 0;
+    if (maxspeed || time_it) {
+        cfg.delay_ms = 0; // never benchmark a paced run
     }
     if (!seed_set) {
         cfg.seed = std::random_device{}();
@@ -179,9 +184,23 @@ static int cmd_generate(int argc, char** argv) {
 
     std::vector<int> tokens = ids;
     const bool greedy = cfg.temp <= 0.0f;
+
+    cuda_check(cudaDeviceSynchronize());
+    const auto t0 = std::chrono::steady_clock::now();
     gpt2::generate(w, a, tok, tokens, cfg, greedy);
     cuda_check(cudaDeviceSynchronize());
+    const auto t1 = std::chrono::steady_clock::now();
     std::putchar('\n');
+
+    if (time_it) {
+        const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        const int generated = int(tokens.size()) - int(ids.size());
+        std::fprintf(stderr,
+            "prompt=%d generated=%d ctx=%d  total=%.1fms  %.2f ms/token  %.1f tok/s\n",
+            int(ids.size()), generated, int(tokens.size()), ms,
+            generated ? ms / generated : 0.0,
+            generated ? generated * 1000.0 / ms : 0.0);
+    }
 
     gpt2::activations_free(a);
     gpt2_free(w);
