@@ -12,11 +12,11 @@
 namespace {
 
     constexpr int N_MAX = 1024;
-    constexpr int D = 768;
-    constexpr int H = 12;
+    constexpr int D = 1600;
+    constexpr int H = 25;
     constexpr int DH = 64;
-    constexpr int QKV = 3 * D; // 2304
-    constexpr int FF = 4 * D;  // 3072
+    constexpr int QKV = 3 * D; // 4800
+    constexpr int FF = 4 * D;  // 6400
 
     int pad_to_64(int n) {
         return ((n + 63) / 64) * 64;

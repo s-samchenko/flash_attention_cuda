@@ -80,7 +80,7 @@ static int cmd_forward(const char* bin) {
     gpt2::gpt2_forward(w, a, kRefPromptIds.data(), n_real);
     cuda_check(cudaDeviceSynchronize());
 
-    std::vector<float> x(size_t(n_real) * 768);
+    std::vector<float> x(size_t(n_real) * w.config.d_model);
     cuda_check(cudaMemcpy(x.data(), a.x, x.size() * sizeof(float), cudaMemcpyDeviceToHost));
 
     float lo = x[0], hi = x[0];
@@ -228,7 +228,10 @@ static int cmd_selftest() {
     }
     std::putchar('\n');
 
-    static const std::vector<int> expected = {};
+    static const std::vector<int> expected = {
+        464, 2068, 7586, 21831, 18045, 625, 262, 16931, 3290, 13, 198, 198,
+        464, 3105, 7586, 21831, 279, 18058, 510, 465, 7721, 290, 29959, 465,
+    };
 
     int rc = 0;
     if (expected.empty()) {
