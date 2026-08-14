@@ -365,3 +365,45 @@ division suggests. The profiler confirms the kernel is already at that
 ceiling: 16.05% achieved occupancy against a 16.67% theoretical maximum.
 Nothing inside the kernel can improve this; the footprint itself has to
 shrink.
+
+---
+
+## GPT-2 Inference (end-to-end)
+
+**Network:** FP32 throughout; attention runs the `fa2_fp16v2` kernel (Q/K/V cast
+fp32->half at the kernel boundary each layer, O returned as fp32).
+**Timing:** generation loop only — weights resident, tokenization excluded,
+`cudaDeviceSynchronize` at both ends.
+
+### Correctness — logits vs. HF `gpt2` (FP32)
+
+| Date       | Model | tokens | max abs diff |    argmax |
+|------------|-------|-------:|-------------:|----------:|
+| 2026-08-09 | 124M  |      4 |      1.52e-2 |       4/4 |
+| 2026-08-09 | 124M  |     49 |      3.08e-2 |     49/49 |
+| 2026-08-09 | 124M  |     64 |      1.56e-1 |     64/64 |
+| 2026-08-09 | 124M  |   1000 |      1.13e+0 | 1000/1000 |
+
+### Generation throughput — re-prefill
+
+| Date       | Model | prompt_len | new_tokens | context range | ms/token | tokens/s |
+|------------|-------|-----------:|-----------:|--------------:|---------:|---------:|
+| 2026-08-09 | 124M  |         16 |         64 |        16..80 |     3.46 |    288.9 |
+| 2026-08-09 | 124M  |        256 |         64 |      256..320 |     6.06 |    165.1 |
+| 2026-08-09 | 124M  |        768 |         64 |      768..832 |    12.58 |     79.5 |
+| 2026-08-12 | 1.5B  |         16 |         64 |        16..80 |    17.49 |     57.2 |
+| 2026-08-12 | 1.5B  |        256 |         64 |      256..320 |    56.24 |     17.8 |
+| 2026-08-12 | 1.5B  |        768 |         64 |      768..832 |   145.34 |      6.9 |
+
+Best of 3 runs; run-to-run spread stayed under 0.6% for both models.
+
+Generation uses re-prefill: with no KV cache, every step recomputes a full
+forward pass over the whole context so far. Per-token cost therefore grows with
+context, so generating N tokens is O(N²) overall. This shows up directly in
+throughput: 124M falls from 289 to 79 tokens/s across the three lengths, 1.5B
+from 57 to 6.9.
+
+The same 48x prompt-length range compresses to a 3.6x throughput range at 124M
+but 8.3x at 1.5B, because each model sits differently on the overhead-vs-compute
+line: short contexts are launch-overhead-bound (~195 kernel launches per forward
+at 124M, ~780 at 1.5B), long contexts compute-bound.

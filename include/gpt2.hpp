@@ -23,13 +23,11 @@ struct GPT2Weights {
     float* arena;
     size_t arena_bytes;
     float *wte, *wpe;
-    BlockWeights h[12];
+    BlockWeights h[48];
     float *lnf_w, *lnf_b;
 };
 
-// Allocates one device arena and carves per-tensor pointers into it.
-// If `manifest_out_path` is non-null, also writes a JSON manifest
-// (per-tensor shape/sum/mean/first/last) computed on the host copy
+// Allocates one device arena and carves per-tensor pointers into it
 void gpt2_load(const char* bin_path, GPT2Weights& out, const char* manifest_out_path = nullptr);
 
 void gpt2_free(GPT2Weights& w);

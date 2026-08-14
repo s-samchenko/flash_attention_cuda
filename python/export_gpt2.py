@@ -23,7 +23,7 @@ from transformers import GPT2LMHeadModel
 # int32 n_layer, n_head, d_model, n_ctx, vocab, pad
 MAGIC = 0x47505432
 VERSION = 1
-CONFIG = dict(n_layer=12, n_head=12, d_model=768, n_ctx=1024, vocab=50257)
+CONFIG = dict(n_layer=48, n_head=25, d_model=1600, n_ctx=1024, vocab=50257)
 HEADER_BYTES = 32
 
 DEFAULT_OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'assets')
@@ -63,7 +63,7 @@ def cmd_weights(out_dir: str):
     manifest_path = os.path.join(out_dir, 'gpt2_weights.manifest.json')
 
     print("loading gpt2 from huggingface...")
-    model = GPT2LMHeadModel.from_pretrained('gpt2').eval()
+    model = GPT2LMHeadModel.from_pretrained('gpt2-xl').eval()
     sd = model.state_dict()
 
     order = _tensor_order()
@@ -247,7 +247,7 @@ def cmd_ref(out_dir: str, dump_block0: bool = False):
     os.makedirs(ref_root, exist_ok=True)
 
     print("loading gpt2 for reference dump...")
-    model = GPT2LMHeadModel.from_pretrained('gpt2').eval()
+    model = GPT2LMHeadModel.from_pretrained('gpt2-xl').eval()
     enc = tiktoken.get_encoding('gpt2')
 
     prompts = [
