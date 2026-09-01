@@ -15,6 +15,9 @@ inference path validated against HuggingFace at logit level.
 - Output validated against HuggingFace at logit level, with argmax agreement at 1000/1000
   positions.
 
+
+<video src="https://github.com/user-attachments/assets/0137ed34-402b-4e15-93ad-155e1cd72fe2" width="100%" controls></video>
+
 ![Throughput vs sequence length](benchmarks%2Fplots%2Fperfomance-comparison.png)
 
 | Kernel        | seq=4096, hd=64 |  TFLOPS | vs naive |
